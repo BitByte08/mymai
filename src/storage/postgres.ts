@@ -7,7 +7,7 @@ import { calcSongRating, getConstant, levelToNumber } from "../constants";
 
 pgTypes.setTypeParser(20, (value) => Number(value));
 
-export const MIGRATION_VERSION = 7;
+export const MIGRATION_VERSION = 8;
 
 // Migration text is deliberately kept as separate, immutable units.  In particular,
 // an edit to the current schema must not silently change an old migration checksum.
@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS achievement_chart_best (profile_key text NOT NULL, ch
   [5, `ALTER TABLE achievement_play_event_log ADD COLUMN IF NOT EXISTS score_gain double precision; ALTER TABLE achievement_play_event_log ADD COLUMN IF NOT EXISTS is_meaningful integer;`,],
   [6, `UPDATE achievement_play_event_log SET score_gain=0 WHERE score_gain IS NULL; UPDATE achievement_play_event_log SET is_meaningful=0 WHERE is_meaningful IS NULL; CREATE INDEX IF NOT EXISTS idx_event_log_timeline ON achievement_play_event_log(profile_key,played_at DESC,source_sequence DESC,event_key);`,],
   [7, `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS minimum_achievement double precision NOT NULL DEFAULT 95.0; ALTER TABLE achievement_play_event_log ADD COLUMN IF NOT EXISTS level_constant double precision; ALTER TABLE achievement_play_event_log ADD COLUMN IF NOT EXISTS achievement_before double precision; ALTER TABLE achievement_play_event_log ADD COLUMN IF NOT EXISTS rating_gain double precision;`,],
+  // clearJson(전체 클리어 기록) 스냅샷을 곡별로 저장해두고 매 동기화마다 upsert하며 이전값과 비교한다.
+  // achievement_chart_best(이벤트 로그 기반 캐시)와 달리 스크래핑 depth/NEW 마커에 의존하지 않는
+  // 전체 클리어 페이지 자체가 기준이라, 트래킹 이전부터 있던 곡도 빠짐없이 기준치를 갖는다.
+  [8, `CREATE TABLE IF NOT EXISTS chart_clears (profile_key text NOT NULL, chart_key text NOT NULL, achievement_val double precision NOT NULL DEFAULT 0, fc text DEFAULT '', sync text DEFAULT '', updated_at bigint DEFAULT 0, PRIMARY KEY(profile_key,chart_key));`,],
 ];
 
 function hash(text: string): string { return crypto.createHash("sha256").update(text).digest("hex"); }
@@ -63,30 +67,32 @@ export class PostgresStorage {
   async getAllCachedProfiles(){return this.q(`SELECT friend_code AS "profileKey",COALESCE(NULLIF(display_friend_code,''),friend_code) AS "friendCode",server_region AS server,player_name AS "playerName",rating,rating_max AS "ratingMax",trophy,trophy_class AS "trophyClass",avatar,grade_img AS "gradeImg",stars,comment,play_count AS "playCount",total_play_count AS "totalPlayCount",last_synced_at AS "lastSyncedAt",recent_json AS "recentJson",top_json AS "topJson",clear_json AS "clearJson",map_json AS "mapJson" FROM profiles`);}
   async deleteCachedProfile(fc:string){await this.q("DELETE FROM profiles WHERE friend_code=$1",[fc]);}
 
-  async saveAchievementPlayEventLogBatch(events:readonly Db.AchievementPlayEventLogInput[], capturedAt=Date.now(), preexistingProfile=false) {
-    if(!events.length) throw new Error("empty event batch"); const profile=events[0].profileKey;
+  // clearJson 스냅샷(chart_clears)을 곡별로 upsert하면서 갱신 전 값을 같은 쿼리에서 돌려받는다.
+  // CTE는 이 문(statement)의 쓰기가 반영되기 전 스냅샷을 보므로 "직전 값 vs 이번 값" 비교가 원자적이다.
+  // 오른 채보만 걸러서 반환 — 트래킹 시작 전부터 있던 곡이든 방금 처음 친 곡이든 chart_clears에 값이
+  // 없으면 0을 기존값으로 보고, 그 자체가 정확한 "진짜 처음 클리어"이므로 잘못된 0 표시가 아니다.
+  async upsertChartClears(profileKey:string, records:readonly Db.ChartClearInput[]):Promise<Db.ChartClearDiff[]>{
+    if(!records.length) return [];
+    const keys=records.map(r=>r.chartKey), vals=records.map(r=>r.achievementVal), fcs=records.map(r=>r.fc||""), syncs=records.map(r=>r.sync||""), now=Date.now();
+    const rows=await this.q<any>(`WITH incoming AS (SELECT * FROM unnest($2::text[],$3::double precision[],$4::text[],$5::text[]) AS t(chart_key,achievement_val,fc,sync)),
+old AS (SELECT chart_key,achievement_val,fc,sync FROM chart_clears WHERE profile_key=$1),
+upserted AS (INSERT INTO chart_clears(profile_key,chart_key,achievement_val,fc,sync,updated_at) SELECT $1,i.chart_key,i.achievement_val,i.fc,i.sync,$6 FROM incoming i ON CONFLICT(profile_key,chart_key) DO UPDATE SET achievement_val=excluded.achievement_val,fc=excluded.fc,sync=excluded.sync,updated_at=excluded.updated_at RETURNING chart_key,achievement_val,fc,sync)
+SELECT u.chart_key AS "chartKey",u.achievement_val AS "achievementVal",u.fc,u.sync,COALESCE(o.achievement_val,0) AS "achievementBefore",COALESCE(o.fc,'') AS "oldFc",COALESCE(o.sync,'') AS "oldSync" FROM upserted u LEFT JOIN old o ON o.chart_key=u.chart_key`,
+      [profileKey,keys,vals,fcs,syncs,now]);
+    return rows.filter((r:any)=>Number(r.achievementVal)>Number(r.achievementBefore)||fcRank(r.fc)>fcRank(r.oldFc)||syncRank(r.sync)>syncRank(r.oldSync))
+      .map((r:any)=>({chartKey:r.chartKey,achievementVal:Number(r.achievementVal),achievementBefore:Number(r.achievementBefore),fc:r.fc,sync:r.sync}));
+  }
+  async saveAchievementPlayEventLogBatch(events:readonly Db.AchievementPlayEventLogInput[], capturedAt=Date.now()) {
+    if(!events.length) return "ok"; const profile=events[0].profileKey;
     const seen=new Map<string,string>();
-    for(const e of events){if(e.profileKey!==profile||!e.sourcePlayId?.trim()||!e.chartKey||!Number.isFinite(e.playedAt)||!Number.isFinite(e.achievementVal)||!Number.isFinite(e.sourceSequence))throw new Error("invalid event batch");const id=e.sourcePlayId.trim(), sig=JSON.stringify(e);if(seen.has(id)&&seen.get(id)!==sig)throw new Error("conflicting sourcePlayId");seen.set(id,sig);}
-    return this.tx(async c=>{await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[profile]);const hasState=(await c.query("SELECT 1 FROM achievement_play_event_log_state WHERE profile_key=$1",[profile])).rowCount!>0;const initialized=hasState||preexistingProfile;
-      const ordered=[...events].sort((a,b)=>a.playedAt-b.playedAt||a.sourceSequence-b.sourceSequence);
-      for(const e of ordered){const id=e.sourcePlayId!.trim(), key=hash(`${profile}\x1f${id}`), legacyKey=hash(`achievement-play-event-log\x1f${profile}\x1f${id}`), payload=hash(JSON.stringify(e));const exists=await c.query<{event_key:string}>("SELECT event_key FROM achievement_play_event_log WHERE profile_key=$1 AND source_play_id=$2 OR event_key=ANY($3)",[profile,id,[key,legacyKey]]);if(exists.rowCount){if(e.ratingUp!=null)await c.query("UPDATE achievement_play_event_log SET rating_up=COALESCE(rating_up,$1) WHERE event_key=$2",[e.ratingUp,exists.rows[0].event_key]);continue;}
-        const best=(await c.query<any>("SELECT achievement_val,fc_rank,sync_rank FROM achievement_chart_best WHERE profile_key=$1 AND chart_key=$2 FOR UPDATE",[profile,e.chartKey])).rows[0];const sr=syncRank(e.sync), fr=fcRank(e.fc), score=Number(e.achievementVal), before=Number(best?.achievement_val??0), unseen=!best;const meaningful=!initialized?false:unseen?(e.isNewScore===true):score>before||fr>best.fc_rank||sr>best.sync_rank;const gain=meaningful&&(!unseen?score>before:true)?Math.max(0,score-before):0;const suppliedLevelConstant=e.levelConstant==null?null:Number(e.levelConstant);const server=profile.startsWith("jp:")?"jp":"intl";const levelConstant=suppliedLevelConstant!=null&&Number.isFinite(suppliedLevelConstant)?suppliedLevelConstant:getConstant(e.title,e.musicKind,e.diff,server)??levelToNumber(e.level);const calculatedRatingGain=levelConstant!=null&&Number.isFinite(levelConstant)?Math.max(0,calcSongRating(score,levelConstant,e.fc)-calcSongRating(before,levelConstant,"")):0;const ratingGain=Number.isFinite(e.ratingUp)?Math.max(0,Number(e.ratingUp)):calculatedRatingGain;
-        await c.query(`INSERT INTO achievement_play_event_log(event_key,profile_key,source_play_id,chart_key,is_baseline,played_at,source_sequence,captured_at,source_kind,achievement_val,fc,sync,rating_up,title,diff,level,music_kind,achievement_text,record_json,payload_hash,score_gain,is_meaningful,level_constant,achievement_before,rating_gain) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,[key,profile,id,e.chartKey,initialized?0:1,e.playedAt,e.sourceSequence,e.capturedAt??capturedAt,e.sourceKind??"history",score,e.fc,e.sync,e.ratingUp??null,e.title,e.diff,e.level,e.musicKind,e.achievementText,e.recordJson,payload,Number.isFinite(gain)?gain:0,meaningful?1:0,levelConstant,before,Number.isFinite(ratingGain)?ratingGain:0]);
-        // unseen이면서 isNewScore가 아닌 경우(예전에도 쳤던 곡을 신기록 없이 재플레이)도 반드시 기록해야
-        // 한다 — 여기서 빠뜨리면 이 채보의 기준치가 영원히 비어서, 나중에 진짜 신기록을 찍는 순간에도
-        // unseen=true로 남아 "0에서 상승"으로 잘못 표시된다. GREATEST라 값이 내려갈 위험은 없다.
-        await c.query(`INSERT INTO achievement_chart_best(profile_key,chart_key,achievement_val,fc_rank,sync_rank) VALUES($1,$2,$3,$4,$5) ON CONFLICT(profile_key,chart_key) DO UPDATE SET achievement_val=GREATEST(achievement_chart_best.achievement_val,excluded.achievement_val),fc_rank=GREATEST(achievement_chart_best.fc_rank,excluded.fc_rank),sync_rank=GREATEST(achievement_chart_best.sync_rank,excluded.sync_rank)`,[profile,e.chartKey,score,fr,sr]);
-      } if(!hasState) await c.query("INSERT INTO achievement_play_event_log_state(profile_key,initialized_at) VALUES($1,$2) ON CONFLICT(profile_key) DO NOTHING",[profile,capturedAt]); return initialized?"ok":"initialized";});
+    for(const e of events){if(e.profileKey!==profile||!e.sourcePlayId?.trim()||!e.chartKey||!Number.isFinite(e.playedAt)||!Number.isFinite(e.achievementVal))throw new Error("invalid event batch");const id=e.sourcePlayId.trim(), sig=JSON.stringify(e);if(seen.has(id)&&seen.get(id)!==sig)throw new Error("conflicting sourcePlayId");seen.set(id,sig);}
+    return this.tx(async c=>{await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[profile]);
+      const ordered=[...events].sort((a,b)=>a.playedAt-b.playedAt);
+      for(const e of ordered){const id=e.sourcePlayId!.trim(), key=hash(`${profile}\x1f${id}`), payload=hash(JSON.stringify(e));const exists=await c.query<{event_key:string}>("SELECT event_key FROM achievement_play_event_log WHERE profile_key=$1 AND source_play_id=$2 OR event_key=$3",[profile,id,key]);if(exists.rowCount){if(e.ratingUp!=null)await c.query("UPDATE achievement_play_event_log SET rating_up=COALESCE(rating_up,$1) WHERE event_key=$2",[e.ratingUp,exists.rows[0].event_key]);continue;}
+        const score=Number(e.achievementVal), before=Number(e.achievementBefore);const gain=Math.max(0,score-before);const suppliedLevelConstant=e.levelConstant==null?null:Number(e.levelConstant);const server=profile.startsWith("jp:")?"jp":"intl";const levelConstant=suppliedLevelConstant!=null&&Number.isFinite(suppliedLevelConstant)?suppliedLevelConstant:getConstant(e.title,e.musicKind,e.diff,server)??levelToNumber(e.level);const calculatedRatingGain=levelConstant!=null&&Number.isFinite(levelConstant)?Math.max(0,calcSongRating(score,levelConstant,e.fc)-calcSongRating(before,levelConstant,"")):0;const ratingGain=Number.isFinite(e.ratingUp)?Math.max(0,Number(e.ratingUp)):calculatedRatingGain;
+        await c.query(`INSERT INTO achievement_play_event_log(event_key,profile_key,source_play_id,chart_key,is_baseline,played_at,source_sequence,captured_at,source_kind,achievement_val,fc,sync,rating_up,title,diff,level,music_kind,achievement_text,record_json,payload_hash,score_gain,is_meaningful,level_constant,achievement_before,rating_gain) VALUES($1,$2,$3,$4,0,$5,$6,$7,'clear_diff',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,1,$20,$21,$22)`,[key,profile,id,e.chartKey,e.playedAt,e.sourceSequence,e.capturedAt??capturedAt,score,e.fc,e.sync,e.ratingUp??null,e.title,e.diff,e.level,e.musicKind,e.achievementText,e.recordJson,payload,Number.isFinite(gain)?gain:0,levelConstant,before,Number.isFinite(ratingGain)?ratingGain:0]);
+      } return "ok";});
   }
-  // 이번 동기화 이전(직전 clearJson)의 곡별 최고 기록으로 achievement_chart_best의 빈 자리만 채운다.
-  // 이벤트 로그가 한 번도 잡지 못한 채보(첫 추적 이전에 이미 플레이한 곡 등)가 갑자기
-  // "0에서 상승"으로 오표시되는 것을 막기 위함 — 기존 기록이 있으면 절대 덮어쓰지 않는다.
-  async seedAchievementChartBestFromClear(profileKey:string, records:readonly Db.ChartBaselineInput[]){
-    const usable=records.filter(r=>r.achievementVal>0);
-    if(!usable.length) return;
-    await this.tx(async c=>{ for(const r of usable) await c.query(`INSERT INTO achievement_chart_best(profile_key,chart_key,achievement_val,fc_rank,sync_rank) VALUES($1,$2,$3,$4,$5) ON CONFLICT(profile_key,chart_key) DO NOTHING`,[profileKey,r.chartKey,r.achievementVal,fcRank(r.fc||""),syncRank(r.sync||"")]); });
-  }
-  async hasAchievementEventLogState(k:string){return (await this.q("SELECT 1 FROM achievement_play_event_log_state WHERE profile_key=$1",[k])).length>0;}
   async getAchievementPlayEventLog(k:string,from?:number,to?:number){const r=await this.q<any>(`SELECT event_key AS "eventKey",profile_key AS "profileKey",source_play_id AS "sourcePlayId",chart_key AS "chartKey",is_baseline AS "isBaseline",played_at AS "playedAt",source_sequence AS "sourceSequence",captured_at AS "capturedAt",source_kind AS "sourceKind",achievement_val AS "achievementVal",fc,sync,rating_up AS "ratingUp",title,diff,level,music_kind AS "musicKind",achievement_text AS "achievementText",record_json AS "recordJson",payload_hash AS "payloadHash",score_gain AS "scoreGain",is_meaningful AS "isMeaningful",level_constant AS "levelConstant",achievement_before AS "achievementBefore",rating_gain AS "ratingGain" FROM achievement_play_event_log WHERE profile_key=$1 AND ($2::bigint IS NULL OR played_at >= $2) AND ($3::bigint IS NULL OR played_at < $3) ORDER BY played_at DESC,source_sequence DESC,event_key DESC`,[k,from??null,to??null]);return r.map(x=>({...x,playedAt:Number(x.playedAt),capturedAt:Number(x.capturedAt),sourceSequence:Number(x.sourceSequence),isBaseline:Number(x.isBaseline),isMeaningful:Number(x.isMeaningful),scoreGain:Number(x.scoreGain),levelConstant:x.levelConstant==null?null:Number(x.levelConstant),achievementBefore:Number(x.achievementBefore??0),ratingGain:Math.max(0,Number(x.ratingGain)||0)}));}
   async getDailyAchievementSummaries(discordUserId:string,from:number,to:number){const session=await this.q<any>("SELECT friend_code,default_server FROM sessions WHERE discord_user_id=$1",[discordUserId]);const stored=session[0]?.friend_code;const profileKey=stored?(/^(?:intl|jp):/.test(stored)?stored:`${session[0]?.default_server==='jp'?'jp':'intl'}:${stored}`):discordUserId;const threshold=await this.getAchievementMinimum(discordUserId);return (await this.getAchievementPlayEventLog(profileKey,from,to)).filter((x:any)=>x.isBaseline===0&&x.isMeaningful===1).reduce((a:any[],x:any)=>{const old=a.find(y=>y.chartKey===x.chartKey);if(!old&&(x.achievementVal>=threshold||fcRank(x.fc)>0||syncRank(x.sync)>=2))a.push({...x,achievementGain:Math.max(0,Number(x.achievementVal)-Number(x.achievementBefore??0)),achievementAfter:Number(x.achievementVal),ratingGain:Math.max(0,Number(x.ratingGain)||0)});return a;},[]);}
   async getAchievementMinimum(id:string){const r=await this.q<any>("SELECT minimum_achievement FROM sessions WHERE discord_user_id=$1",[id]);return Number(r[0]?.minimum_achievement??95);}
