@@ -3,7 +3,7 @@ import * as fs from "fs";
 import { gunzip } from "zlib";
 import { promisify } from "util";
 import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey } from "../scraper";
-import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, seedAchievementChartBestFromClear, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum } from "../storage";
+import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum } from "../storage";
 import { buildBookmarkletJs, setBaseUrl, getBaseUrl, buildBookmarklet, BOOKMARKLET_PRESETS, getBookmarkletPresets } from "./bookmarklet";
 import { computeRatingTarget, getAllSongTitles } from "../constants";
 import { settingsPage } from "./settingsPage";
@@ -714,8 +714,7 @@ a{color:#c084fc}
           return;
         }
 
-        const previousCached = await getCachedProfile(`${syncServer}:${fc}`);
-        const preexistingProfile = previousCached !== null;
+        const preexistingProfile = (await getCachedProfile(`${syncServer}:${fc}`)) !== null;
         const savedProfileKey = await cacheProfile({
           playerName: effective.playerName || "???", rating: effective.rating || 0,
           ratingMax: effective.ratingMax || 0, gradeImg: effective.gradeImg || "",
@@ -724,34 +723,46 @@ a{color:#c084fc}
           playCount: playCount || 0, totalPlayCount: totalPlayCount || 0, comment: effective.comment || "", friendCode: fc,
         }, playCount || 0, JSON.stringify(enrichedRecentRecords), JSON.stringify(topRecords), JSON.stringify(clearRecords), syncServer, JSON.stringify(mapAreas));
         const syncStamp = Date.now();
-        // 성과(achievement) 로그 처리는 부가 기능이다. 스크래핑 결과 한두 건이 이상해도
-        // (idx 누락, 날짜 파싱 실패 등) 프로필 저장/세션 갱신 같은 핵심 동기화는 항상 성공해야 한다.
+        // 성과(achievement)는 clearJson(전체 클리어 기록) 스냅샷 diff로 판정한다: chart_clears
+        // 테이블에 이번 clearRecords를 upsert하면서 직전 값과 원자적으로 비교해, 실제로 오른 채보만
+        // 돌려받는다. 스크래핑 depth나 "NEW" 마커 여부에 기대지 않으므로 트래킹 이전부터 있던 곡이든
+        // 방금 처음 친 곡이든 정확한 기존값 기준으로 빠짐없이 감지된다. 레이팅 상승분(+N)만 history의
+        // detail 파싱 결과에서 채워 넣는다(clearJson에는 이 값이 없음). 이 처리는 부가 기능이라 실패해도
+        // 프로필 저장/세션 갱신 같은 핵심 동기화에는 영향 없게 별도 try/catch로 격리한다.
         let canonicalStatus = "ok";
         try {
-          // 진짜 첫 동기화(init)는 이 순간이 기준점이므로 방금 파싱한 clearRecords(현재 전체 클리어
-          // 기록)로 곡별 기준치를 세운다. 그 이후 동기화는 "오늘 플레이 반영 전" 상태인 직전
-          // clearJson으로 이벤트 로그가 아직 못 잡은 채보의 빈 자리만 채워, 오늘의 상승분이
-          // 기준치에 섞여 0으로 뭉개지지 않게 한다.
-          const baselineSource: typeof clearRecords = preexistingProfile
-            ? (previousCached?.clearJson ? JSON.parse(previousCached.clearJson || "[]") : [])
-            : clearRecords;
-          const baselines = baselineSource
-            .filter((r) => r.achievementVal > 0)
-            .map((r) => ({ chartKey: chartKey(r), achievementVal: r.achievementVal, fc: r.fc, sync: r.sync }));
-          if (baselines.length) await seedAchievementChartBestFromClear(savedProfileKey, baselines);
-          const canonicalBatch = enrichedHistoryRecords
-            .map((record, index) => ({ record, sourceSequence: enrichedHistoryRecords.length - index }))
-            .filter(({ record }) => record.detailIdx && hasValidRecordDate(record.date))
-            .map(({ record, sourceSequence }) => ({
-              profileKey: savedProfileKey, sourcePlayId: record.detailIdx!, chartKey: chartKey(record),
-              playedAt: recordPlayedAt(record.date), sourceSequence,
-              capturedAt: syncStamp, recordJson: JSON.stringify(record), achievementVal: record.achievementVal,
-              fc: record.fc, sync: record.sync, ratingUp: record.ratingUp, isNewScore: record.isNewScore,
-              title: record.title, diff: record.diff, level: record.level,
-              musicKind: record.musicKind, achievementText: record.achievement,
-            }));
-          if (canonicalBatch.length) {
-            canonicalStatus = await saveAchievementPlayEventLogBatch(canonicalBatch, syncStamp, preexistingProfile);
+          const chartDiffs = await upsertChartClears(
+            savedProfileKey,
+            clearRecords.map((r) => ({ chartKey: chartKey(r), achievementVal: r.achievementVal, fc: r.fc, sync: r.sync })),
+          );
+          // 첫 동기화는 비교 대상이 없어 diff 결과가 전부 "0에서 시작"이 되므로, chart_clears는
+          // 채워두되(다음 동기화부터 비교 가능) 성과 이벤트는 만들지 않는다.
+          if (preexistingProfile && chartDiffs.length) {
+            const historyByChart = new Map<string, typeof enrichedHistoryRecords>();
+            for (const r of enrichedHistoryRecords) {
+              const k = chartKey(r);
+              const list = historyByChart.get(k);
+              if (list) list.push(r); else historyByChart.set(k, [r]);
+            }
+            // chartDiffs의 chartKey는 항상 이번 clearRecords에서 만들어졌으므로 매칭이 항상 존재한다.
+            const clearByChart = new Map(clearRecords.map((r) => [chartKey(r), r]));
+            const events = chartDiffs.map((d, idx) => {
+              const candidates = historyByChart.get(d.chartKey) ?? [];
+              const match = candidates.find((r) => Math.abs(r.achievementVal - d.achievementVal) < 0.00005)
+                ?? candidates.reduce<typeof candidates[number] | undefined>((best, r) => (!best || r.achievementVal > best.achievementVal ? r : best), undefined);
+              const playedAt = match && hasValidRecordDate(match.date) ? recordPlayedAt(match.date) : syncStamp;
+              const source = clearByChart.get(d.chartKey)!;
+              return {
+                profileKey: savedProfileKey,
+                sourcePlayId: match?.detailIdx ?? `clear:${d.chartKey}:${d.achievementVal.toFixed(4)}:${syncStamp}`,
+                chartKey: d.chartKey, playedAt, sourceSequence: idx, capturedAt: syncStamp,
+                recordJson: JSON.stringify(match ?? source), achievementVal: d.achievementVal, achievementBefore: d.achievementBefore,
+                fc: d.fc, sync: d.sync, ratingUp: match?.ratingUp,
+                title: source.title, diff: source.diff, level: source.level, musicKind: source.musicKind,
+                achievementText: match?.achievement ?? `${d.achievementVal.toFixed(4)}%`,
+              };
+            });
+            canonicalStatus = await saveAchievementPlayEventLogBatch(events, syncStamp);
           }
         } catch (achievementError) {
           console.error("[web] 성과 로그 처리 실패 (동기화는 계속 진행):", achievementError);
