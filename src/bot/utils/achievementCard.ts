@@ -240,13 +240,19 @@ export async function renderAchievementCard(
   playDay: string,
   avatarBuf: Buffer | null,
   translate = false,
+  pageIndex = 0,
+  pageSize = 5,
 ): Promise<Buffer> {
   const fonts = await loadFonts();
-  const topRecords = records.slice().sort((a, b) => {
+  const sortedRecords = records.slice().sort((a, b) => {
     const aScore = (chartConstant(a, profile) ?? 0) + achievementAfter(a) / 100;
     const bScore = (chartConstant(b, profile) ?? 0) + achievementAfter(b) / 100;
     return bScore - aScore || (ratingGain(b) ?? 0) - (ratingGain(a) ?? 0) || (b.playedAt ?? 0) - (a.playedAt ?? 0);
   });
+  const totalPages = Math.max(1, Math.ceil(sortedRecords.length / pageSize));
+  const clampedPage = Math.min(Math.max(0, pageIndex), totalPages - 1);
+  const rankOffset = clampedPage * pageSize;
+  const topRecords = sortedRecords.slice(rankOffset, rankOffset + pageSize);
   const avatarUrl = avatarBuf ? `data:image/png;base64,${avatarBuf.toString("base64")}` : "";
   const jacketUrls = new Map<string, string | null>();
   await Promise.all(
@@ -281,11 +287,11 @@ export async function renderAchievementCard(
       el("div", { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 18 }, [
         el("div", { display: "flex", flexDirection: "column", gap: 4 }, [
           el("span", { color: "#fff", fontSize: 28, fontWeight: 800, lineHeight: 1 }, "오늘의 성과"),
-          el("span", { color: MUTED, fontSize: 11 }, `${playDay} · 한국시간 오전 4시 기준`),
+          el("span", { color: MUTED, fontSize: 11 }, `${playDay} · 한국시간 오전 4시 기준${totalPages > 1 ? ` · ${clampedPage + 1}/${totalPages}페이지` : ""}`),
         ]),
         el("div", { display: "flex", gap: 26 }, [
-          stat("COUNT", String(topRecords.length), ACCENT),
-          stat("RATING GAIN", `+${topRecords.reduce((sum, record) => sum + Math.max(0, ratingGain(record) ?? 0), 0).toFixed(0)}`, ACCENT),
+          stat("COUNT", String(sortedRecords.length), ACCENT),
+          stat("RATING GAIN", `+${sortedRecords.reduce((sum, record) => sum + Math.max(0, ratingGain(record) ?? 0), 0).toFixed(0)}`, ACCENT),
         ]),
       ]),
       el(
@@ -298,7 +304,7 @@ export async function renderAchievementCard(
         },
         topRecords.length > 0
           ? topRecords.map((record, index) =>
-              recordRow(record, index + 1, profile, jacketUrls.get(record.jacketUrl) ?? null, playDay, translate),
+              recordRow(record, rankOffset + index + 1, profile, jacketUrls.get(record.jacketUrl) ?? null, playDay, translate),
             )
           : emptyState(),
       ),

@@ -20,6 +20,8 @@ function isPlayDayKey(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
+const ACHIEVEMENT_PAGE_SIZE = 5;
+
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   const target = interaction.options.getUser("user") ?? interaction.user;
   const userId = target.id;
@@ -49,7 +51,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       : koreaPlayDayKey(new Date());
     const { from, to } = koreaPlayDayRange(playDay);
     const summaries = await getDailyAchievementSummaries(userId, from, to);
-    const records = summaries.map((e) => ({ title:e.title, achievement:e.achievementAfter.toFixed(4)+"%", diff:e.diff, level:e.level, date:new Date(e.playedAt).toISOString(), jacketUrl:"", musicKind:e.musicKind, achievementVal:Number(e.achievementAfter), track:0, fc:e.fc, sync:e.sync, ratingUp:e.ratingUp ?? undefined, playedAt:Number(e.playedAt), achievementGain:e.achievementGain, ratingGain:e.ratingGain, achievementBefore:e.achievementBefore, achievementAfter:e.achievementAfter, levelConstant:e.levelConstant ?? undefined }));
+    const records = summaries.map((e) => {
+      // record_json에는 원본 스크래핑 당시의 PlayRecord(jacketUrl 포함)가 그대로 들어있다.
+      let jacketUrl = "";
+      try { jacketUrl = JSON.parse(e.recordJson)?.jacketUrl || ""; } catch { jacketUrl = ""; }
+      return { title:e.title, achievement:e.achievementAfter.toFixed(4)+"%", diff:e.diff, level:e.level, date:new Date(e.playedAt).toISOString(), jacketUrl, musicKind:e.musicKind, achievementVal:Number(e.achievementAfter), track:0, fc:e.fc, sync:e.sync, ratingUp:e.ratingUp ?? undefined, playedAt:Number(e.playedAt), achievementGain:e.achievementGain, ratingGain:e.ratingGain, achievementBefore:e.achievementBefore, achievementAfter:e.achievementAfter, levelConstant:e.levelConstant ?? undefined };
+    });
     console.log(`[성과] 데이터 summaries=${summaries.length} records=${records.length}`);
     if (records.length === 0) {
       console.log(`[성과] 표시할 성과 없음 playDay=${playDay}`);
@@ -64,12 +71,20 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     await interaction.deferReply();
     replyDeferred = true;
     const avatar = await getAvatarBlob(userId, cached.server);
+    const translate = await getTranslateTitles(interaction.user.id);
     const renderStartedAt = Date.now();
-    console.log(`[성과] 렌더 시작 records=${records.length} avatarBytes=${avatar?.length ?? 0}`);
-    const png = await renderAchievementCard(cached, records, playDay, avatar, await getTranslateTitles(interaction.user.id));
-    console.log(`[성과] 렌더 완료 pngBytes=${png.length} elapsedMs=${Date.now() - renderStartedAt}`);
+    // 한 장에 5개씩 여러 장으로 나눠 한 메시지에 같이 첨부한다 (인스타/X 공유 시 사진 여러 장으로 넘기기 좋게).
+    // Discord 첨부 최대 개수(10)를 넘지 않도록 페이지 수를 제한한다.
+    const totalPages = Math.min(10, Math.max(1, Math.ceil(records.length / ACHIEVEMENT_PAGE_SIZE)));
+    console.log(`[성과] 렌더 시작 records=${records.length} pages=${totalPages} avatarBytes=${avatar?.length ?? 0}`);
+    const pngs = await Promise.all(
+      Array.from({ length: totalPages }, (_, pageIndex) =>
+        renderAchievementCard(cached, records, playDay, avatar, translate, pageIndex, ACHIEVEMENT_PAGE_SIZE),
+      ),
+    );
+    console.log(`[성과] 렌더 완료 pages=${pngs.length} elapsedMs=${Date.now() - renderStartedAt}`);
     await interaction.editReply({
-      files: [new AttachmentBuilder(png, { name: `achievement-${playDay}.png` })],
+      files: pngs.map((png, i) => new AttachmentBuilder(png, { name: `achievement-${playDay}-${i + 1}.png` })),
     });
     console.log(`[성과] 응답 완료 playDay=${playDay}`);
   } catch (e) {
