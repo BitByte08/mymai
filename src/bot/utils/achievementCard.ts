@@ -133,7 +133,8 @@ function recordRow(record: PlayRecord, rank: number, profile: CachedProfile, jac
   const constant = chartConstant(record, profile);
   const constantLabel = constant !== null ? constant.toFixed(1) : record.level;
   const before = achievementBefore(record);
-  const achievementLabel = before !== null ? `${before.toFixed(4)}% → ${achievementAfter(record).toFixed(4)}%` : `${achievementAfter(record).toFixed(4)}%`;
+  const after = achievementAfter(record);
+  const achievementLabel = before !== null ? `${after.toFixed(4)}%(+${Math.max(0, after - before).toFixed(4)}%)` : `${after.toFixed(4)}%`;
   return el(
     "div",
     {
