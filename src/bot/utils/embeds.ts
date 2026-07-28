@@ -537,7 +537,7 @@ export async function searchResultEmbeds(
         (getRegionExclusive(title) ? `${verLabel} 전용` : verLabel) + "\n";
       const emb = new EmbedBuilder()
         .setColor(0x2b2d31)
-        .setTitle(truncateVisual(displayTitle(title, translate), 26) + kind)
+        .setTitle(displayTitle(title, translate) + kind)
         .setAuthor({ name: `"${query}"${typeLabel} 에 대한 검색 결과` })
         .setDescription(
           regionLine +
