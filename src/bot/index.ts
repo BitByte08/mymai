@@ -42,18 +42,34 @@ async function runRatingCardGC(): Promise<void> {
   }
 }
 
+// discord.js Client는 EventEmitter다: error/shardError에 리스너가 하나도 없으면
+// Node가 그 이벤트를 uncaughtException으로 취급해 프로세스 전체가 죽는다.
+// 게이트웨이 재연결 실패 같은 일시적 네트워크 문제로도 봇이 통째로 내려가는 걸 막기 위한 필수 리스너.
+process.on("unhandledRejection", (reason) => console.error("[process] unhandled rejection:", reason));
+process.on("uncaughtException", (error) => console.error("[process] uncaught exception:", error));
+
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+client.on(Events.Error, (error) => console.error("[discord] client error:", error));
+client.on(Events.ShardError, (error) => console.error("[discord] shard error:", error));
 
 client.once(Events.ClientReady, async (c) => {
   console.log(`[maimai] ${c.user.tag}`);
-  const rest = new REST({ version: "10" }).setToken(CONFIG.token);
-  const route = CONFIG.guildId
-    ? Routes.applicationGuildCommands(CONFIG.clientId, CONFIG.guildId)
-    : Routes.applicationCommands(CONFIG.clientId);
-  await rest.put(route, { body: [...COMMANDS.map((cmd) => cmd.data.toJSON()), report.contextData.toJSON()] });
+  try {
+    const rest = new REST({ version: "10" }).setToken(CONFIG.token);
+    const route = CONFIG.guildId
+      ? Routes.applicationGuildCommands(CONFIG.clientId, CONFIG.guildId)
+      : Routes.applicationCommands(CONFIG.clientId);
+    await rest.put(route, { body: [...COMMANDS.map((cmd) => cmd.data.toJSON()), report.contextData.toJSON()] });
+  } catch (e) {
+    console.error("[maimai] 명령어 등록 실패:", e);
+  }
   await loadConstants();
-  setInterval(() => loadConstants(), 24 * 60 * 60 * 1000);
-  await loadAliases();
+  setInterval(() => { loadConstants().catch((e) => console.error("[constants] 주기 갱신 실패:", e)); }, 24 * 60 * 60 * 1000);
+  try {
+    await loadAliases();
+  } catch (e) {
+    console.error("[aliases] 로드 실패:", e);
+  }
   loadFonts().catch((e) => console.error("[fonts] 초기 로드 실패:", e));
   void runRatingCardGC();
   setInterval(() => void runRatingCardGC(), RATING_CARD_GC_INTERVAL_MS);

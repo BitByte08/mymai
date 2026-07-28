@@ -2,8 +2,8 @@ import * as http from "http";
 import * as fs from "fs";
 import { gunzip } from "zlib";
 import { promisify } from "util";
-import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail } from "../scraper";
-import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum } from "../storage";
+import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey } from "../scraper";
+import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, seedAchievementChartBestFromClear, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum } from "../storage";
 import { buildBookmarkletJs, setBaseUrl, getBaseUrl, buildBookmarklet, BOOKMARKLET_PRESETS, getBookmarkletPresets } from "./bookmarklet";
 import { computeRatingTarget, getAllSongTitles } from "../constants";
 import { settingsPage } from "./settingsPage";
@@ -714,7 +714,8 @@ a{color:#c084fc}
           return;
         }
 
-        const preexistingProfile = (await getCachedProfile(`${syncServer}:${fc}`)) !== null;
+        const previousCached = await getCachedProfile(`${syncServer}:${fc}`);
+        const preexistingProfile = previousCached !== null;
         const savedProfileKey = await cacheProfile({
           playerName: effective.playerName || "???", rating: effective.rating || 0,
           ratingMax: effective.ratingMax || 0, gradeImg: effective.gradeImg || "",
@@ -723,20 +724,39 @@ a{color:#c084fc}
           playCount: playCount || 0, totalPlayCount: totalPlayCount || 0, comment: effective.comment || "", friendCode: fc,
         }, playCount || 0, JSON.stringify(enrichedRecentRecords), JSON.stringify(topRecords), JSON.stringify(clearRecords), syncServer, JSON.stringify(mapAreas));
         const syncStamp = Date.now();
-        const canonicalBatch = enrichedHistoryRecords.map((record, index) => {
-          if (!record.detailIdx || !hasValidRecordDate(record.date)) {
-            throw new Error("canonical history missing source identity or timestamp");
+        // 성과(achievement) 로그 처리는 부가 기능이다. 스크래핑 결과 한두 건이 이상해도
+        // (idx 누락, 날짜 파싱 실패 등) 프로필 저장/세션 갱신 같은 핵심 동기화는 항상 성공해야 한다.
+        let canonicalStatus = "ok";
+        try {
+          // 진짜 첫 동기화(init)는 이 순간이 기준점이므로 방금 파싱한 clearRecords(현재 전체 클리어
+          // 기록)로 곡별 기준치를 세운다. 그 이후 동기화는 "오늘 플레이 반영 전" 상태인 직전
+          // clearJson으로 이벤트 로그가 아직 못 잡은 채보의 빈 자리만 채워, 오늘의 상승분이
+          // 기준치에 섞여 0으로 뭉개지지 않게 한다.
+          const baselineSource: typeof clearRecords = preexistingProfile
+            ? (previousCached?.clearJson ? JSON.parse(previousCached.clearJson || "[]") : [])
+            : clearRecords;
+          const baselines = baselineSource
+            .filter((r) => r.achievementVal > 0)
+            .map((r) => ({ chartKey: chartKey(r), achievementVal: r.achievementVal, fc: r.fc, sync: r.sync }));
+          if (baselines.length) await seedAchievementChartBestFromClear(savedProfileKey, baselines);
+          const canonicalBatch = enrichedHistoryRecords
+            .map((record, index) => ({ record, sourceSequence: enrichedHistoryRecords.length - index }))
+            .filter(({ record }) => record.detailIdx && hasValidRecordDate(record.date))
+            .map(({ record, sourceSequence }) => ({
+              profileKey: savedProfileKey, sourcePlayId: record.detailIdx!, chartKey: chartKey(record),
+              playedAt: recordPlayedAt(record.date), sourceSequence,
+              capturedAt: syncStamp, recordJson: JSON.stringify(record), achievementVal: record.achievementVal,
+              fc: record.fc, sync: record.sync, ratingUp: record.ratingUp, isNewScore: record.isNewScore,
+              title: record.title, diff: record.diff, level: record.level,
+              musicKind: record.musicKind, achievementText: record.achievement,
+            }));
+          if (canonicalBatch.length) {
+            canonicalStatus = await saveAchievementPlayEventLogBatch(canonicalBatch, syncStamp, preexistingProfile);
           }
-          return {
-            profileKey: savedProfileKey, sourcePlayId: record.detailIdx, chartKey: `${record.title}|${record.musicKind}|${record.diff}`,
-            playedAt: recordPlayedAt(record.date), sourceSequence: enrichedHistoryRecords.length - index,
-            capturedAt: syncStamp, recordJson: JSON.stringify(record), achievementVal: record.achievementVal,
-            fc: record.fc, sync: record.sync, ratingUp: record.ratingUp, isNewScore: record.isNewScore,
-            title: record.title, diff: record.diff, level: record.level,
-            musicKind: record.musicKind, achievementText: record.achievement,
-          };
-        });
-        const canonicalStatus = await saveAchievementPlayEventLogBatch(canonicalBatch, syncStamp, preexistingProfile);
+        } catch (achievementError) {
+          console.error("[web] 성과 로그 처리 실패 (동기화는 계속 진행):", achievementError);
+          canonicalStatus = "achievement_error";
+        }
         await saveUserSession(syncUserId, "{}", savedProfileKey, syncServer);
 
         const savedMapImages = await cacheMapImages(mapAreas, syncServer);
