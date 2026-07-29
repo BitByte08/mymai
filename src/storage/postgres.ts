@@ -79,7 +79,9 @@ old AS (SELECT chart_key,achievement_val,fc,sync FROM chart_clears WHERE profile
 upserted AS (INSERT INTO chart_clears(profile_key,chart_key,achievement_val,fc,sync,updated_at) SELECT $1,i.chart_key,i.achievement_val,i.fc,i.sync,$6 FROM incoming i ON CONFLICT(profile_key,chart_key) DO UPDATE SET achievement_val=excluded.achievement_val,fc=excluded.fc,sync=excluded.sync,updated_at=excluded.updated_at RETURNING chart_key,achievement_val,fc,sync)
 SELECT u.chart_key AS "chartKey",u.achievement_val AS "achievementVal",u.fc,u.sync,COALESCE(o.achievement_val,0) AS "achievementBefore",COALESCE(o.fc,'') AS "oldFc",COALESCE(o.sync,'') AS "oldSync" FROM upserted u LEFT JOIN old o ON o.chart_key=u.chart_key`,
       [profileKey,keys,vals,fcs,syncs,now]);
-    return rows.filter((r:any)=>Number(r.achievementVal)>Number(r.achievementBefore)||fcRank(r.fc)>fcRank(r.oldFc)||syncRank(r.sync)>syncRank(r.oldSync))
+    // 순수 SYNC(rank 1)는 멀티플레이에 참여하기만 해도 붙는 등급이라 실력 성과로 보기 어렵다.
+    // FS 이상(rank>=2)으로 올라간 경우만 sync 쪽 성과 트리거로 인정한다.
+    return rows.filter((r:any)=>{const sr=syncRank(r.sync), oldSr=syncRank(r.oldSync); return Number(r.achievementVal)>Number(r.achievementBefore)||fcRank(r.fc)>fcRank(r.oldFc)||(sr>=2&&sr>oldSr);})
       .map((r:any)=>({chartKey:r.chartKey,achievementVal:Number(r.achievementVal),achievementBefore:Number(r.achievementBefore),fc:r.fc,sync:r.sync}));
   }
   async saveAchievementPlayEventLogBatch(events:readonly Db.AchievementPlayEventLogInput[], capturedAt=Date.now()) {
