@@ -1,9 +1,7 @@
-import satori from "satori";
-import { Resvg } from "@resvg/resvg-js";
+import { renderInWorker } from "./renderPool";
 import type { CachedProfile } from "../../storage/types";
 import type { PlayRecord } from "../../scraper";
 import { getConstant } from "../../constants";
-import { loadFonts } from "../../fonts";
 import { displayTitle } from "../../aliases";
 
 const ACCENT = "#9333ea";
@@ -243,7 +241,6 @@ export async function renderAchievementCard(
   pageIndex = 0,
   pageSize = 5,
 ): Promise<Buffer> {
-  const fonts = await loadFonts();
   const sortedRecords = records.slice().sort((a, b) => {
     const aScore = (chartConstant(a, profile) ?? 0) + achievementAfter(a) / 100;
     const bScore = (chartConstant(b, profile) ?? 0) + achievementAfter(b) / 100;
@@ -315,6 +312,5 @@ export async function renderAchievementCard(
     ? topRecords.length * RECORD_ROW_HEIGHT + Math.max(0, topRecords.length - 1) * ROW_GAP + 16
     : EMPTY_BODY_HEIGHT;
   const height = HEADER_HEIGHT + bodyHeight + 8;
-  const svg = await satori(root, { width, height, fonts });
-  return Buffer.from(new Resvg(svg, { fitTo: { mode: "width", value: width * 2 } }).render().asPng());
+  return renderInWorker(root, width, height);
 }

@@ -1,5 +1,4 @@
-import satori from "satori";
-import { Resvg } from "@resvg/resvg-js";
+import { renderInWorker } from "./renderPool";
 import type { PlayRecord, ChartMarks, MaimaiServer } from "../../scraper";
 import { buildMarkMap, buildKindResolver, chartKey } from "../../scraper";
 import type { CachedProfile } from "../../storage";
@@ -16,7 +15,6 @@ import {
   getJacketFile,
   isNewSong,
 } from "../../constants";
-import { loadFonts } from "../../fonts";
 import { displayTitle } from "../../aliases";
 
 // ─── Design tokens (ported from mailog) ──────────────────────────────────
@@ -404,8 +402,6 @@ export async function renderRatingCard(
     return cached.blob;
   }
 
-  const fonts = await loadFonts();
-
   // 레이팅 대상 페이지엔 FC/AP·Sync 마크가 없어 clear 기록에서 마크를 끌어옴
   let clearRecords: PlayRecord[] = [];
   try {
@@ -615,16 +611,7 @@ export async function renderRatingCard(
     [header, body],
   );
 
-  const svg = await satori(root as any, {
-    width: totalWidth,
-    fonts: fonts as any,
-  });
-  const png = new Resvg(svg, {
-    fitTo: { mode: "width", value: totalWidth * 2 },
-  })
-    .render()
-    .asPng();
-  const buf = Buffer.from(png);
+  const buf = await renderInWorker(root, totalWidth);
 
   // ─── Persist render cache ─────────────────────────────────────────────────
   // 번역본은 공유 캐시(원제 기준)를 덮어쓰지 않는다.
