@@ -61,7 +61,7 @@ export const GENRES = [
 // 넓게 포함해 국제판/JP 어느 쪽 수록이든 신곡으로 잡히게 한다.
 // 버전 코드는 시작값 + 세부 웨이브(예: PRiSM PLUS = 25500~25599)이므로 범위로 판정.
 // (시작 코드: 25500 PRiSM PLUS, 26000 CiRCLE, 26500 CiRCLE PLUS, 27000 다음 세대 ...)
-const NEW_SONG_MIN_VERSION = 25500; // 국제판 신곡 하한: PRiSM PLUS 시작 (포함, 국제판이 반 세대 뒤라 넓게 잡음)
+const NEW_SONG_MIN_VERSION = 26000; // 국제판 신곡 하한: CiRCLE 시작 (국제판도 CiRCLE로 업데이트, PRiSM PLUS는 이제 구곡)
 const NEW_SONG_MIN_VERSION_JP = 26000; // 내수판 신곡 하한: CiRCLE 시작 (내수판 현재 = CiRCLE PLUS이므로 CiRCLE+CiRCLE PLUS만 신곡)
 const NEW_SONG_MAX_VERSION = 27000; // 다음 세대 시작 (미포함) = CiRCLE PLUS까지 신곡
 
