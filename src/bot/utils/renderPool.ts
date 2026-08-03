@@ -4,12 +4,23 @@ import * as path from "path";
 // satori(layout)+resvg(rasterize) are synchronous CPU work; running them on the
 // main thread blocks the Discord gateway/web event loop long enough for other
 // users' interactions to time out. Offload to a small worker pool instead.
-// ponytail: fixed pool size, bump or make it configurable if the render queue backs up.
-const POOL_SIZE = 2;
+// Default 1: the deployed VM has ~950MB total RAM, where a second concurrent
+// V8 isolate isn't worth the extra heap headroom it needs. Raise RENDER_POOL_SIZE
+// if deployed on a bigger box and the render queue backs up.
+const POOL_SIZE = Number(process.env.RENDER_POOL_SIZE) || 1;
+
+// Each worker is its own V8 isolate; without an explicit cap its heap can grow
+// independently of the main thread's --max-old-space-size and blow past the
+// container's cgroup mem_limit before either side "notices". Keep it well
+// under BOT_MEM_LIMIT once you add up main thread + POOL_SIZE workers.
+const WORKER_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 32 };
 
 const ext = path.extname(__filename); // ".js" under dist (prod), ".ts" under ts-node (dev)
 const workerPath = path.join(__dirname, "renderWorker" + ext);
-const workerOptions = ext === ".ts" ? { execArgv: ["-r", "ts-node/register/transpile-only"] } : {};
+const workerOptions = {
+  resourceLimits: WORKER_RESOURCE_LIMITS,
+  ...(ext === ".ts" ? { execArgv: ["-r", "ts-node/register/transpile-only"] } : {}),
+};
 
 interface PendingJob {
   resolve: (buf: Buffer) => void;
