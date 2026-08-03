@@ -7,7 +7,7 @@ import { calcSongRating, getConstant, levelToNumber } from "../constants";
 
 pgTypes.setTypeParser(20, (value) => Number(value));
 
-export const MIGRATION_VERSION = 8;
+export const MIGRATION_VERSION = 9;
 
 // Migration text is deliberately kept as separate, immutable units.  In particular,
 // an edit to the current schema must not silently change an old migration checksum.
@@ -34,6 +34,19 @@ CREATE TABLE IF NOT EXISTS achievement_chart_best (profile_key text NOT NULL, ch
   // achievement_chart_best(이벤트 로그 기반 캐시)와 달리 스크래핑 depth/NEW 마커에 의존하지 않는
   // 전체 클리어 페이지 자체가 기준이라, 트래킹 이전부터 있던 곡도 빠짐없이 기준치를 갖는다.
   [8, `CREATE TABLE IF NOT EXISTS chart_clears (profile_key text NOT NULL, chart_key text NOT NULL, achievement_val double precision NOT NULL DEFAULT 0, fc text DEFAULT '', sync text DEFAULT '', updated_at bigint DEFAULT 0, PRIMARY KEY(profile_key,chart_key));`,],
+  // v8은 chart_clears를 빈 테이블로만 만들어서, 이미 존재하던 프로필은 배포 후 첫 동기화 때
+  // 지금까지 친 모든 곡이 "0에서 상승"으로 한꺼번에 잡히는 사고가 났다(실제로 한 유저에게서
+  // 1074개 성과가 튀어나와 렌더링/DB 부하로 서비스가 죽음). 기존 clear_json으로 빈 자리를 채운다.
+  [9, `INSERT INTO chart_clears(profile_key,chart_key,achievement_val,fc,sync,updated_at)
+SELECT p.friend_code,
+       COALESCE(elem->>'title','')||'|'||COALESCE(elem->>'musicKind','')||'|'||COALESCE(elem->>'diff',''),
+       COALESCE((elem->>'achievementVal')::double precision,0),
+       COALESCE(elem->>'fc',''),
+       COALESCE(elem->>'sync',''),
+       0
+FROM profiles p, jsonb_array_elements(p.clear_json::jsonb) AS elem
+WHERE p.clear_json IS NOT NULL AND p.clear_json NOT IN ('','[]') AND COALESCE((elem->>'achievementVal')::double precision,0)>0
+ON CONFLICT (profile_key,chart_key) DO NOTHING;`,],
 ];
 
 function hash(text: string): string { return crypto.createHash("sha256").update(text).digest("hex"); }
@@ -84,8 +97,15 @@ SELECT u.chart_key AS "chartKey",u.achievement_val AS "achievementVal",u.fc,u.sy
     return rows.filter((r:any)=>{const sr=syncRank(r.sync), oldSr=syncRank(r.oldSync); return Number(r.achievementVal)>Number(r.achievementBefore)||fcRank(r.fc)>fcRank(r.oldFc)||(sr>=2&&sr>oldSr);})
       .map((r:any)=>({chartKey:r.chartKey,achievementVal:Number(r.achievementVal),achievementBefore:Number(r.achievementBefore),fc:r.fc,sync:r.sync}));
   }
-  async saveAchievementPlayEventLogBatch(events:readonly Db.AchievementPlayEventLogInput[], capturedAt=Date.now()) {
-    if(!events.length) return "ok"; const profile=events[0].profileKey;
+  async saveAchievementPlayEventLogBatch(rawEvents:readonly Db.AchievementPlayEventLogInput[], capturedAt=Date.now()) {
+    if(!rawEvents.length) return "ok";
+    // 정상적인 하루 성과는 수십 개를 넘기지 않는다. 훨씬 크면 거의 확실히 버그
+    // (예: 마이그레이션 백필 누락으로 전체 클리어 기록이 한꺼번에 "신규"로 잡히는 경우)이므로,
+    // 동기화 자체가 죽지 않도록 앞쪽 일부만 기록하고 나머지는 버린다.
+    const MAX_EVENTS_PER_BATCH = 200;
+    if(rawEvents.length>MAX_EVENTS_PER_BATCH) console.warn(`[achievement] batch too large (${rawEvents.length} events for ${rawEvents[0].profileKey}), truncating to ${MAX_EVENTS_PER_BATCH}`);
+    const events = rawEvents.length>MAX_EVENTS_PER_BATCH ? rawEvents.slice(0,MAX_EVENTS_PER_BATCH) : rawEvents;
+    const profile=events[0].profileKey;
     const seen=new Map<string,string>();
     for(const e of events){if(e.profileKey!==profile||!e.sourcePlayId?.trim()||!e.chartKey||!Number.isFinite(e.playedAt)||!Number.isFinite(e.achievementVal))throw new Error("invalid event batch");const id=e.sourcePlayId.trim(), sig=JSON.stringify(e);if(seen.has(id)&&seen.get(id)!==sig)throw new Error("conflicting sourcePlayId");seen.set(id,sig);}
     return this.tx(async c=>{await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[profile]);
