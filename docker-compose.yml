@@ -3,6 +3,8 @@ services:
     image: postgres:16-alpine
     container_name: carol-postgres
     restart: unless-stopped
+    mem_limit: ${POSTGRES_MEM_LIMIT:-512m}
+    memswap_limit: ${POSTGRES_MEM_LIMIT:-512m}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-carol}
       POSTGRES_USER: ${POSTGRES_USER:-carol}
@@ -19,6 +21,8 @@ services:
     image: ghcr.io/team-carol/carol:latest
     container_name: carol-bot
     restart: unless-stopped
+    mem_limit: ${BOT_MEM_LIMIT:-768m}
+    memswap_limit: ${BOT_MEM_LIMIT:-768m}
     volumes:
       - ./data:/app/data
       - ./config.json:/app/config.json:ro
@@ -37,6 +41,8 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: carol-tunnel
     restart: unless-stopped
+    mem_limit: ${CLOUDFLARED_MEM_LIMIT:-128m}
+    memswap_limit: ${CLOUDFLARED_MEM_LIMIT:-128m}
     command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN=${CF_TUNNEL_TOKEN}

@@ -84,8 +84,15 @@ SELECT u.chart_key AS "chartKey",u.achievement_val AS "achievementVal",u.fc,u.sy
     return rows.filter((r:any)=>{const sr=syncRank(r.sync), oldSr=syncRank(r.oldSync); return Number(r.achievementVal)>Number(r.achievementBefore)||fcRank(r.fc)>fcRank(r.oldFc)||(sr>=2&&sr>oldSr);})
       .map((r:any)=>({chartKey:r.chartKey,achievementVal:Number(r.achievementVal),achievementBefore:Number(r.achievementBefore),fc:r.fc,sync:r.sync}));
   }
-  async saveAchievementPlayEventLogBatch(events:readonly Db.AchievementPlayEventLogInput[], capturedAt=Date.now()) {
-    if(!events.length) return "ok"; const profile=events[0].profileKey;
+  async saveAchievementPlayEventLogBatch(rawEvents:readonly Db.AchievementPlayEventLogInput[], capturedAt=Date.now()) {
+    if(!rawEvents.length) return "ok";
+    // 정상적인 하루 성과는 수십 개를 넘기지 않는다. 훨씬 크면 거의 확실히 버그
+    // (예: 마이그레이션 백필 누락으로 전체 클리어 기록이 한꺼번에 "신규"로 잡히는 경우)이므로,
+    // 동기화 자체가 죽지 않도록 앞쪽 일부만 기록하고 나머지는 버린다.
+    const MAX_EVENTS_PER_BATCH = 200;
+    if(rawEvents.length>MAX_EVENTS_PER_BATCH) console.warn(`[achievement] batch too large (${rawEvents.length} events for ${rawEvents[0].profileKey}), truncating to ${MAX_EVENTS_PER_BATCH}`);
+    const events = rawEvents.length>MAX_EVENTS_PER_BATCH ? rawEvents.slice(0,MAX_EVENTS_PER_BATCH) : rawEvents;
+    const profile=events[0].profileKey;
     const seen=new Map<string,string>();
     for(const e of events){if(e.profileKey!==profile||!e.sourcePlayId?.trim()||!e.chartKey||!Number.isFinite(e.playedAt)||!Number.isFinite(e.achievementVal))throw new Error("invalid event batch");const id=e.sourcePlayId.trim(), sig=JSON.stringify(e);if(seen.has(id)&&seen.get(id)!==sig)throw new Error("conflicting sourcePlayId");seen.set(id,sig);}
     return this.tx(async c=>{await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[profile]);
