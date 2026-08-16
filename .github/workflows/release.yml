@@ -89,7 +89,7 @@ jobs:
       - name: Deploy via SSH
         run: |
           ssh deploy-host '
-            cd ~/maimai
+            cd ~
             git pull origin master
             docker compose pull
             docker compose up -d
