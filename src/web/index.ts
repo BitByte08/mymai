@@ -4,6 +4,7 @@ import { gunzip } from "zlib";
 import { promisify } from "util";
 import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey } from "../scraper";
 import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum } from "../storage";
+import type { SongAliasRow } from "../storage/types";
 import { buildBookmarkletJs, setBaseUrl, getBaseUrl, buildBookmarklet, BOOKMARKLET_PRESETS, getBookmarkletPresets } from "./bookmarklet";
 import { computeRatingTarget, getAllSongTitles } from "../constants";
 import { settingsPage } from "./settingsPage";
@@ -219,6 +220,28 @@ export function startWebServer(port: number): void {
         "cache-control": "public, max-age=300",
       });
       res.end(JSON.stringify({ userCount, serverCount, version }));
+      return;
+    }
+
+    // 랜딩페이지/외부용 곡 별명 시트 (읽기 전용)
+    if (req.method === "GET" && url.pathname === "/api/aliases") {
+      const rows = await getAllAliases();
+      const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+      const translationOnly = url.searchParams.get("translation") === "1";
+      let aliases = rows.map((r: SongAliasRow) => ({
+        id: r.id,
+        title: r.title,
+        alias: r.alias,
+        isTranslation: !!r.isTranslation,
+      }));
+      if (translationOnly) aliases = aliases.filter((a) => a.isTranslation);
+      if (q) aliases = aliases.filter((a) => a.title.toLowerCase().includes(q) || a.alias.toLowerCase().includes(q));
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "access-control-allow-origin": "*",
+        "cache-control": "public, max-age=300",
+      });
+      res.end(JSON.stringify({ count: aliases.length, aliases }));
       return;
     }
 
