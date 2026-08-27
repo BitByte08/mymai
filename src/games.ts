@@ -89,6 +89,7 @@ export function sdvxRS(ach: number, lv: number, marks: string[] = []): number {
 //   13.6~13.9 → 10.0~10.5
 //   14.0~14.5 → 10.6~10.9
 //   14.6~14.9 → 11.0~11.5
+//   15.0 이상 → 12.0 (고정 목록에 없는 신규 채보)
 // 특정 곡은 개별 고정 (CHUNITHM·SDVX의 보정과 동일한 방식).
 // 점수: (achInt / 1010000) × 10000000 선형 보간
 // 단일 포텐셜: PM(10M) +2.0 / ≥9.8M: +1.0+(x-9.8M)/200K / 그 외: (x-9.5M)/300K
@@ -110,6 +111,8 @@ function lerpLv(lv: number, a0: number, a1: number, b0: number, b1: number): num
 export function arcaeaLevel(lv: number, title?: string): number {
   const fixed = title !== undefined ? ARCAEA_FIXED[title] : undefined;
   if (fixed && lv >= fixed[0]) return fixed[1];
+  // 고정 목록에 없는 15.0 이상 채보(향후 추가분)는 상한인 12.0으로 본다.
+  if (lv >= 15.0) return 12.0;
   if (lv >= 14.6) return lerpLv(lv, 14.6, 14.9, 11.0, 11.5);
   if (lv >= 14.0) return lerpLv(lv, 14.0, 14.5, 10.6, 10.9);
   if (lv >= 13.6) return lerpLv(lv, 13.6, 13.9, 10.0, 10.5);
