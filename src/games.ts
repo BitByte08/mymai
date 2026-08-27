@@ -367,6 +367,8 @@ export interface GameConfig {
   readonly ratingLabel: string;
   readonly select: SelectMode;
   readonly sections: readonly GameSection[];
+  /** 상위 몇 곡에 2배 가중치가 붙는지. 해당 곡의 레이팅 숫자를 강조 표시한다. */
+  readonly doubleCount?: number;
   /** 곡 단위 레이팅 (mai-log 원본 공식). title은 곡별 레벨 보정에만 쓰인다. */
   readonly calcRS: (
     ach: number,
@@ -384,6 +386,10 @@ const sum = (xs: number[]) => xs.reduce((s, v) => s + v, 0);
 
 // Arcaea 7.0: Best 50 중 상위 몇 곡에 2배 가중치를 주는지
 export const ARCAEA_DOUBLE_COUNT = 10;
+
+// 2배 가중치가 붙은 곡의 레이팅 숫자 색 (기본은 흰색)
+export const RS_DEFAULT_COLOR = "#fff";
+export const RS_DOUBLE_COLOR = "#fbbf24";
 
 export const GAMES: Record<GameId, GameConfig> = {
   maimai: {
@@ -437,6 +443,7 @@ export const GAMES: Record<GameId, GameConfig> = {
     ratingLabel: "POTENTIAL",
     select: "top",
     sections: [{ label: "BEST", count: 50, cols: 10 }],
+    doubleCount: ARCAEA_DOUBLE_COUNT,
     calcRS: arcaeaRS,
     // 상위 10곡은 2배로 계산한 뒤 곡 수 50으로 나눈다.
     calcTotal: (rs) => {

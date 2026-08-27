@@ -28,6 +28,8 @@ import {
   GAME_CM_COLOR,
   GAME_DIFF_COLOR,
   MAI_DIFF_COLOR,
+  RS_DEFAULT_COLOR,
+  RS_DOUBLE_COLOR,
 } from "../../games";
 
 // ─── Design tokens (ported from mailog) ──────────────────────────────────
@@ -57,6 +59,7 @@ interface CardVM {
   ach: string;
   rs: number;
   rsText: string;
+  rsColor: string;
   lv: string;
   diff: string;
   diffColor: string;
@@ -115,6 +118,7 @@ function toVM(
         : convertScore(ach, game),
     rs,
     rsText: game === "maimai" ? String(rs) : cfg.formatRS(rs),
+    rsColor: RS_DEFAULT_COLOR,
     lv:
       game === "maimai"
         ? constant !== null
@@ -215,7 +219,7 @@ function jacketCard(
   infoRows.push(
     el(
       "div",
-      { fontSize: 19, fontWeight: 800, color: "#fff", lineHeight: 1 },
+      { fontSize: 19, fontWeight: 800, color: vm.rsColor, lineHeight: 1 },
       vm.rsText,
     ),
   );
@@ -505,6 +509,12 @@ export async function renderRatingCard(
         .slice(0, first.count)
         .map((x) => x.vm);
       sections.push({ label: first.label, cols: first.cols, vms: top });
+    }
+
+    // 2배 가중치가 붙는 상위 N곡은 레이팅 숫자를 강조색으로 표시 (Arcaea 7.0)
+    if (cfg.doubleCount) {
+      for (const vm of sections[0].vms.slice(0, cfg.doubleCount))
+        vm.rsColor = RS_DOUBLE_COLOR;
     }
 
     const allVms = sections.flatMap((sec) => sec.vms);
