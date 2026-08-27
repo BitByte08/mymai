@@ -12,6 +12,11 @@ function floor2(v: number): number {
   return Math.floor(Number((v * 100).toFixed(6))) / 100;
 }
 
+// 소수 3자리 내림 (Arcaea 포텐셜 표기 기준: 4자리 이하 버림)
+function floor3(v: number): number {
+  return Math.floor(Number((v * 1000).toFixed(6))) / 1000;
+}
+
 export const GAME_IDS: GameId[] = ["maimai", "chunithm", "sdvx", "arcaea"];
 
 // ─── 레이팅 계산식 (mai-log ratingCalc.ts 원본) ───────────────────────────────
@@ -482,10 +487,11 @@ export const GAMES: Record<GameId, GameConfig> = {
         (acc, v, i) => acc + (i < ARCAEA_DOUBLE_COUNT ? v * 2 : v),
         0,
       );
-      return floor2(weighted / ARCAEA_POTENTIAL_DIVISOR);
+      return floor3(weighted / ARCAEA_POTENTIAL_DIVISOR);
     },
     formatRS: (v) => v.toFixed(2),
-    formatTotal: (v) => v.toFixed(2),
+    // 포텐셜은 소수 3자리까지 표시하고 4자리 이하는 버린다.
+    formatTotal: (v) => v.toFixed(3),
   },
 };
 
