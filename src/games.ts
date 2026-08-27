@@ -166,7 +166,7 @@ export function arcaeaRS(
   // TRACK COMPLETE 고정 가산
   if (isArcaeaTrackComplete(ach, marks)) potential += 0.2;
 
-  return floor2(potential);
+  return floor3(potential);
 }
 
 // ─── 점수 / 난이도 / 마크 치환 (mai-log scoreConvert.ts 원본) ─────────────────
@@ -489,8 +489,8 @@ export const GAMES: Record<GameId, GameConfig> = {
       );
       return floor3(weighted / ARCAEA_POTENTIAL_DIVISOR);
     },
-    formatRS: (v) => v.toFixed(2),
-    // 포텐셜은 소수 3자리까지 표시하고 4자리 이하는 버린다.
+    // 포텐셜은 곡별·총합 모두 소수 3자리까지 표시하고 4자리 이하는 버린다.
+    formatRS: (v) => v.toFixed(3),
     formatTotal: (v) => v.toFixed(3),
   },
 };

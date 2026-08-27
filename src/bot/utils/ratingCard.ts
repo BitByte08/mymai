@@ -216,10 +216,12 @@ function jacketCard(
 
   // bottom info block
   const infoRows: El[] = [];
+  // 자릿수가 많으면(예: Arcaea의 소수 3자리) 카드 폭에 맞게 살짝 줄인다.
+  const rsFontSize = vm.rsText.length >= 6 ? 17 : 19;
   infoRows.push(
     el(
       "div",
-      { fontSize: 19, fontWeight: 800, color: vm.rsColor, lineHeight: 1 },
+      { fontSize: rsFontSize, fontWeight: 800, color: vm.rsColor, lineHeight: 1 },
       vm.rsText,
     ),
   );
