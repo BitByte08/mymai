@@ -14,8 +14,21 @@ import {
   calcSongRating,
   getJacketFile,
   isNewSong,
+  getSongVersion,
 } from "../../constants";
 import { displayTitle } from "../../aliases";
+import type { GameId } from "../../games";
+import {
+  GAMES,
+  convertScore,
+  convertDiff,
+  buildDisplayMarks,
+  getDisplayLv,
+  recordMarks,
+  GAME_CM_COLOR,
+  GAME_DIFF_COLOR,
+  MAI_DIFF_COLOR,
+} from "../../games";
 
 // ─── Design tokens (ported from mailog) ──────────────────────────────────
 const CARD_W = 110;
@@ -24,56 +37,6 @@ const GAP = 4;
 const ACCENT = "#9333ea";
 // 카드 레이아웃/계산이 바뀌면 올린다 → 기존 렌더 캐시가 자동 무효화됨
 const CARD_VERSION = 7;
-
-const MAI_DIFF_COLOR: Record<string, string> = {
-  BASIC: "#16a34a",
-  ADVANCED: "#ea580c",
-  EXPERT: "#dc2626",
-  MASTER: "#9333ea",
-  "Re:MASTER": "#c084fc",
-};
-
-const MAI_CM_COLOR: Record<string, string> = {
-  "SSS+": "#d97706",
-  SSS: "#f59e0b",
-  "SS+": "#fbbf24",
-  SS: "#fbbf24",
-  "S+": "#fb923c",
-  S: "#fb923c",
-  AAA: "#60a5fa",
-  AA: "#60a5fa",
-  A: "#93c5fd",
-  BBB: "#7dd3fc",
-  BB: "#bae6fd",
-  B: "#e0f2fe",
-  C: "#d1d5db",
-  D: "#9ca3af",
-  "AP+": "#d946ef",
-  AP: "#d946ef",
-  "FC+": "#3b82f6",
-  FC: "#60a5fa",
-  "FS+": "#22c55e",
-  FS: "#4ade80",
-  FSD: "#34d399",
-  "FSD+": "#10b981",
-};
-
-function scoreRank(ach: number): string {
-  if (ach >= 100.5) return "SSS+";
-  if (ach >= 100.0) return "SSS";
-  if (ach >= 99.5) return "SS+";
-  if (ach >= 99.0) return "SS";
-  if (ach >= 98.0) return "S+";
-  if (ach >= 97.0) return "S";
-  if (ach >= 94.0) return "AAA";
-  if (ach >= 90.0) return "AA";
-  if (ach >= 80.0) return "A";
-  if (ach >= 75.0) return "BBB";
-  if (ach >= 70.0) return "BB";
-  if (ach >= 60.0) return "B";
-  if (ach >= 50.0) return "C";
-  return "D";
-}
 
 // ─── Satori element helper (no JSX) ───────────────────────────────────────
 type El = {
@@ -92,34 +55,78 @@ function el(
 interface CardVM {
   title: string;
   ach: string;
-  rank: string;
   rs: number;
+  rsText: string;
   lv: string;
   diff: string;
   diffColor: string;
   isDx: boolean;
-  fc: string;
+  showKind: boolean;
+  mark: string;
+  clearMark: string;
   jacketFile: string | null;
 }
 
-function toVM(r: PlayRecord, markMap?: Map<string, ChartMarks>, server: MaimaiServer = "intl", translate = false): CardVM {
+const MAI_COMBO_MARKS = ["AP+", "AP", "FC+", "FC"];
+
+function toVM(
+  r: PlayRecord,
+  markMap?: Map<string, ChartMarks>,
+  server: MaimaiServer = "intl",
+  translate = false,
+  game: GameId = "maimai",
+): CardVM {
   const constant = getConstant(r.title, r.musicKind, r.diff, server);
   const lvNum = constant !== null ? constant : levelToNumber(r.level);
   // 레이팅 대상 페이지엔 FC/AP·Sync 아이콘이 없어 clear 기록의 마크를 우선 사용
   const marks = markMap?.get(chartKey(r));
   const fc = marks?.fc ?? r.fc;
-  const rs = calcSongRating(r.achievementVal, lvNum, fc);
+  const sync = marks?.sync ?? r.sync;
+  const markList = recordMarks(fc, sync);
+  const ach = r.achievementVal;
+
+  // maimai는 캐롤봇 기존 계산식을, 나머지는 mai-log 원본 공식을 쓴다.
+  const cfg = GAMES[game];
+  const rs =
+    game === "maimai"
+      ? calcSongRating(ach, lvNum, fc)
+      : cfg.calcRS(ach, lvNum, markList);
+
+  const allMarks = buildDisplayMarks(ach, markList, game);
+  const clearMark =
+    game === "maimai"
+      ? (allMarks.find((m) => MAI_COMBO_MARKS.includes(m)) ?? "")
+      : (allMarks[1] ?? "");
+
+  const version = getSongVersion(r.title) ?? undefined;
+  const diffLabel = game === "maimai" ? r.diff : convertDiff(game, r.diff, version);
+  const diffColor =
+    game === "maimai"
+      ? (MAI_DIFF_COLOR[r.diff] ?? "#888")
+      : (GAME_DIFF_COLOR[game][diffLabel] ?? "#888");
+
   return {
     title: displayTitle(r.title, translate),
     ach:
-      r.achievementVal > 0 ? r.achievementVal.toFixed(4) + "%" : r.achievement,
-    rank: scoreRank(r.achievementVal),
+      game === "maimai"
+        ? ach > 0
+          ? ach.toFixed(4) + "%"
+          : r.achievement
+        : convertScore(ach, game),
     rs,
-    lv: constant !== null ? constant.toFixed(1) : r.level,
-    diff: r.diff,
-    diffColor: MAI_DIFF_COLOR[r.diff] ?? "#888",
+    rsText: game === "maimai" ? String(rs) : cfg.formatRS(rs),
+    lv:
+      game === "maimai"
+        ? constant !== null
+          ? constant.toFixed(1)
+          : r.level
+        : getDisplayLv(lvNum, game).toFixed(1),
+    diff: diffLabel,
+    diffColor,
     isDx: r.musicKind === "DX",
-    fc,
+    showKind: game === "maimai",
+    mark: allMarks[0] ?? "",
+    clearMark,
     jacketFile: getJacketFile(r.title),
   };
 }
@@ -144,7 +151,12 @@ async function fetchJacketDataUrl(file: string): Promise<string | null> {
 }
 
 // ─── Card component ───────────────────────────────────────────────────────
-function jacketCard(vm: CardVM, rank: number, jacketUrl: string | null): El {
+function jacketCard(
+  vm: CardVM,
+  rank: number,
+  jacketUrl: string | null,
+  cmColor: Record<string, string>,
+): El {
   const layers: El[] = [];
 
   layers.push(
@@ -204,7 +216,7 @@ function jacketCard(vm: CardVM, rank: number, jacketUrl: string | null): El {
     el(
       "div",
       { fontSize: 19, fontWeight: 800, color: "#fff", lineHeight: 1 },
-      String(vm.rs),
+      vm.rsText,
     ),
   );
 
@@ -225,16 +237,20 @@ function jacketCard(vm: CardVM, rank: number, jacketUrl: string | null): El {
         },
         vm.ach,
       ),
-      el(
-        "span",
-        {
-          fontSize: 7,
-          fontWeight: 800,
-          color: vm.isDx ? "#f97316" : "rgba(255,255,255,0.65)",
-          marginLeft: "auto",
-        },
-        vm.isDx ? "DX" : "ST",
-      ),
+      ...(vm.showKind
+        ? [
+            el(
+              "span",
+              {
+                fontSize: 7,
+                fontWeight: 800,
+                color: vm.isDx ? "#f97316" : "rgba(255,255,255,0.65)",
+                marginLeft: "auto",
+              },
+              vm.isDx ? "DX" : "ST",
+            ),
+          ]
+        : []),
     ]),
   );
 
@@ -257,29 +273,30 @@ function jacketCard(vm: CardVM, rank: number, jacketUrl: string | null): El {
 
   // 하단: 좌측 난이도 · 우측 [콤보마크(AP/FC) + 스코어랭크] (mailog 다운로드 카드와 동일 배치)
   const rightMarks: El[] = [];
-  if (vm.fc)
+  if (vm.clearMark)
     rightMarks.push(
       el(
         "span",
         {
           fontSize: 7,
           fontWeight: 700,
-          color: MAI_CM_COLOR[vm.fc] ?? "rgba(255,255,255,0.65)",
+          color: cmColor[vm.clearMark] ?? "rgba(255,255,255,0.55)",
         },
-        vm.fc,
+        vm.clearMark,
       ),
     );
-  rightMarks.push(
-    el(
-      "span",
-      {
-        fontSize: 7,
-        fontWeight: 700,
-        color: MAI_CM_COLOR[vm.rank] ?? "rgba(255,255,255,0.65)",
-      },
-      vm.rank,
-    ),
-  );
+  if (vm.mark)
+    rightMarks.push(
+      el(
+        "span",
+        {
+          fontSize: 7,
+          fontWeight: 700,
+          color: cmColor[vm.mark] ?? "rgba(255,255,255,0.65)",
+        },
+        vm.mark,
+      ),
+    );
   infoRows.push(
     el(
       "div",
@@ -335,7 +352,12 @@ function jacketCard(vm: CardVM, rank: number, jacketUrl: string | null): El {
   );
 }
 
-function sectionLabel(label: string, count: number, avg: number): El {
+function sectionLabel(
+  label: string,
+  count: number,
+  avg: number,
+  formatRS: (v: number) => string,
+): El {
   return el(
     "div",
     {
@@ -352,7 +374,7 @@ function sectionLabel(label: string, count: number, avg: number): El {
       el(
         "span",
         { fontSize: 9, color: "#777", marginLeft: "auto" },
-        `avg ${avg.toFixed(1)}`,
+        `avg ${formatRS(avg)}`,
       ),
     ],
   );
@@ -363,6 +385,7 @@ function cardGrid(
   cols: number,
   startRank: number,
   jackets: Map<string, string>,
+  cmColor: Record<string, string>,
 ): El {
   const width = CARD_W * cols + GAP * (cols - 1);
   const cards = vms.map((vm, i) =>
@@ -370,6 +393,7 @@ function cardGrid(
       vm,
       startRank + i,
       vm.jacketFile ? (jackets.get(vm.jacketFile) ?? null) : null,
+      cmColor,
     ),
   );
   return el(
@@ -390,10 +414,17 @@ export async function renderRatingCard(
   records: PlayRecord[],
   avatarBuf: Buffer | null,
   translate = false,
+  game: GameId = "maimai",
 ): Promise<Buffer> {
+  const cfg = GAMES[game];
+  const cmColor = GAME_CM_COLOR[game];
+  // 곡별 RS는 게임별 포맷을 쓰되, 섹션 평균은 maimai만 기존 표기(소수 1자리)를 유지
+  const formatAvg = game === "maimai" ? (v: number) => v.toFixed(1) : cfg.formatRS;
   // ─── Render cache: return cached PNG if profile and card version unchanged ─
   // 번역 표시본은 뷰어별로 달라 공유 캐시(원제 기준)를 쓰지 않고 매번 새로 렌더한다.
-  const cached = translate ? null : await getRatingCardCache(profile.profileKey);
+  // 타 게임 치환본도 마찬가지로 maimai 기준 캐시를 공유하지 않는다.
+  const cacheable = !translate && game === "maimai";
+  const cached = cacheable ? await getRatingCardCache(profile.profileKey) : null;
   if (
     cached &&
     cached.syncedAt === profile.lastSyncedAt &&
@@ -418,27 +449,106 @@ export async function renderRatingCard(
     musicKind: resolveKind(r),
   });
 
-  // 국제판: maimai net 파싱 순서(신곡 15 + 구곡 35)를 그대로 신뢰.
-  // JP: 전체 기록에서 직접 산출하므로 버전(isNewSong)으로 분류(15/35 미만 오분류 방지).
-  const newRecords =
-    profile.server === "jp"
-      ? records.filter((r) => isNewSong(r.title, "jp")).slice(0, 15)
-      : records.slice(0, 15);
-  const otherRecords =
-    profile.server === "jp"
-      ? records.filter((r) => !isNewSong(r.title, "jp")).slice(0, 35)
-      : records.slice(15, 50);
-  const newVms = newRecords.map((r) => toVM(fix(r), markMap, profile.server, translate));
-  const otherVms = otherRecords.map((r) => toVM(fix(r), markMap, profile.server, translate));
-  // 헤더에는 프로필에 저장된 실제 레이팅을 표시
-  const totalRs =
-    profile.rating || newVms.concat(otherVms).reduce((s, v) => s + v.rs, 0);
+  const vmOf = (r: PlayRecord) =>
+    toVM(fix(r), markMap, profile.server, translate, game);
+
+  // 섹션 구성. maimai는 기존 동작(레이팅 대상 50곡)을 그대로 유지하고,
+  // 타 게임은 mai-log와 동일하게 전체 기록에서 게임별 규칙으로 다시 뽑는다.
+  const sections: { label: string; cols: number; vms: CardVM[] }[] = [];
+  let totalRs: string;
+
+  if (game === "maimai") {
+    // 국제판: maimai net 파싱 순서(신곡 15 + 구곡 35)를 그대로 신뢰.
+    // JP: 전체 기록에서 직접 산출하므로 버전(isNewSong)으로 분류(15/35 미만 오분류 방지).
+    const newRecords =
+      profile.server === "jp"
+        ? records.filter((r) => isNewSong(r.title, "jp")).slice(0, 15)
+        : records.slice(0, 15);
+    const otherRecords =
+      profile.server === "jp"
+        ? records.filter((r) => !isNewSong(r.title, "jp")).slice(0, 35)
+        : records.slice(15, 50);
+    const newVms = newRecords.map(vmOf);
+    const otherVms = otherRecords.map(vmOf);
+    sections.push({ label: "NEW", cols: 3, vms: newVms });
+    sections.push({ label: "OTHERS", cols: 7, vms: otherVms });
+    // 헤더에는 프로필에 저장된 실제 레이팅을 표시
+    totalRs = String(
+      profile.rating || newVms.concat(otherVms).reduce((s, v) => s + v.rs, 0),
+    );
+  } else {
+    // 치환 대상은 레이팅 대상 50곡이 아니라 전체 기록 풀에서 고른다.
+    // clear 기록이 없으면(수집 전) 레이팅 대상곡으로 대체한다.
+    const pool = clearRecords.length > 0 ? clearRecords : records;
+    const rated = pool
+      .filter((r) => r.achievementVal > 0)
+      .map((r) => ({ r, vm: vmOf(r) }));
+    const byRs = (a: { vm: CardVM }, b: { vm: CardVM }) => b.vm.rs - a.vm.rs;
+    const [first, second] = cfg.sections;
+
+    if (cfg.select === "newOld") {
+      const news = rated
+        .filter((x) => isNewSong(x.r.title, profile.server))
+        .sort(byRs)
+        .slice(0, first.count)
+        .map((x) => x.vm);
+      const olds = rated
+        .filter((x) => !isNewSong(x.r.title, profile.server))
+        .sort(byRs)
+        .slice(0, second.count)
+        .map((x) => x.vm);
+      sections.push({ label: first.label, cols: first.cols, vms: news });
+      sections.push({ label: second.label, cols: second.cols, vms: olds });
+    } else if (cfg.select === "top") {
+      const top = rated
+        .sort(byRs)
+        .slice(0, first.count)
+        .map((x) => x.vm);
+      sections.push({ label: first.label, cols: first.cols, vms: top });
+    } else {
+      // Arcaea: 최근 30판에서 곡+난이도별 최고 달성률 → 상위 10곡, 나머지는 Best 30
+      let recentRecords: PlayRecord[] = [];
+      try {
+        const parsed = JSON.parse(profile.recentJson || "[]");
+        const arr = Array.isArray(parsed) ? parsed : (parsed.recent ?? []);
+        if (Array.isArray(arr)) recentRecords = arr;
+      } catch {
+        /* ignore */
+      }
+      const recentMap = new Map<string, PlayRecord>();
+      for (const log of recentRecords.slice(0, 30)) {
+        const key = chartKey(fix(log));
+        const existing = recentMap.get(key);
+        if (!existing || log.achievementVal > existing.achievementVal)
+          recentMap.set(key, log);
+      }
+      const recentTop = [...recentMap.values()]
+        .map((r) => ({ key: chartKey(fix(r)), vm: vmOf(r) }))
+        .sort(byRs)
+        .slice(0, first.count);
+      const recentKeys = new Set(recentTop.map((x) => x.key));
+      const best = rated
+        .filter((x) => !recentKeys.has(chartKey(fix(x.r))))
+        .sort(byRs)
+        .slice(0, second.count)
+        .map((x) => x.vm);
+      sections.push({
+        label: first.label,
+        cols: first.cols,
+        vms: recentTop.map((x) => x.vm),
+      });
+      sections.push({ label: second.label, cols: second.cols, vms: best });
+    }
+
+    const allVms = sections.flatMap((sec) => sec.vms);
+    totalRs = cfg.formatTotal(cfg.calcTotal(allVms.map((v) => v.rs)));
+  }
 
   // prefetch all jacket images
   const files = [
     ...new Set(
-      [...newVms, ...otherVms].flatMap((v) =>
-        v.jacketFile ? [v.jacketFile] : [],
+      sections.flatMap((sec) =>
+        sec.vms.flatMap((v) => (v.jacketFile ? [v.jacketFile] : [])),
       ),
     ),
   ];
@@ -450,16 +560,18 @@ export async function renderRatingCard(
     }),
   );
 
-  const leftCols = 3,
-    rightCols = 7;
-  const leftWidth = CARD_W * leftCols + GAP * (leftCols - 1);
-  const rightWidth = CARD_W * rightCols + GAP * (rightCols - 1);
-  // NEW 섹션을 살짝 밝은 패널로 감싸고 두 섹션 사이에 구분선
-  const NEW_PAD = 6; // NEW 패널 안쪽 여백 (틴트가 카드 둘레로 보이게)
+  const gridWidth = (cols: number) => CARD_W * cols + GAP * (cols - 1);
+  // 첫 섹션을 살짝 밝은 패널로 감싸고 두 섹션 사이에 구분선
+  const NEW_PAD = 6; // 패널 안쪽 여백 (틴트가 카드 둘레로 보이게)
   const DIV_W = 1; // 섹션 구분선 두께
   const COL_GAP = 12;
+  const twoCol = sections.length > 1;
+  const leftWidth = gridWidth(sections[0].cols);
+  const rightWidth = twoCol ? gridWidth(sections[1].cols) : 0;
   const newPanelWidth = leftWidth + NEW_PAD * 2;
-  const bodyWidth = newPanelWidth + COL_GAP + DIV_W + COL_GAP + rightWidth;
+  const bodyWidth = twoCol
+    ? newPanelWidth + COL_GAP + DIV_W + COL_GAP + rightWidth
+    : leftWidth;
   const PAD = 16;
   const totalWidth = bodyWidth + PAD * 2;
 
@@ -518,11 +630,11 @@ export async function renderRatingCard(
     "div",
     { display: "flex", flexDirection: "column", alignItems: "flex-end" },
     [
-      el("span", { fontSize: 8, color: "#777" }, "RATING"),
+      el("span", { fontSize: 8, color: "#777" }, cfg.ratingLabel),
       el(
         "span",
-        { fontSize: 20, fontWeight: 800, color: ACCENT, lineHeight: 1.1 },
-        String(totalRs),
+        { fontSize: 20, fontWeight: 800, color: cfg.accent, lineHeight: 1.1 },
+        totalRs,
       ),
     ],
   );
@@ -556,49 +668,60 @@ export async function renderRatingCard(
     ],
   );
 
-  const body = el(
-    "div",
-    { display: "flex", marginTop: 10, gap: COL_GAP, alignItems: "flex-start" },
-    [
-      // NEW: 살짝 밝은 배경 패널
-      el(
+  const sectionPanel = (
+    sec: { label: string; cols: number; vms: CardVM[] },
+    tinted: boolean,
+  ): El =>
+    el(
+      "div",
+      tinted
+        ? {
+            display: "flex",
+            flexDirection: "column",
+            width: gridWidth(sec.cols) + NEW_PAD * 2,
+            padding: NEW_PAD,
+            background: "rgba(255,255,255,0.06)",
+            borderRadius: 6,
+          }
+        : {
+            display: "flex",
+            flexDirection: "column",
+            width: gridWidth(sec.cols),
+            // 틴트 패널의 상하 패딩만큼 맞춰 섹션 라벨/카드 높이를 정렬 (가로 패딩은 없음 → 폭 유지)
+            paddingTop: NEW_PAD,
+            paddingBottom: NEW_PAD,
+          },
+      [
+        sectionLabel(sec.label, sec.vms.length, avg(sec.vms), formatAvg),
+        cardGrid(sec.vms, sec.cols, 1, jackets, cmColor),
+      ],
+    );
+
+  const body = twoCol
+    ? el(
         "div",
         {
           display: "flex",
-          flexDirection: "column",
-          width: newPanelWidth,
-          padding: NEW_PAD,
-          background: "rgba(255,255,255,0.06)",
-          borderRadius: 6,
+          marginTop: 10,
+          gap: COL_GAP,
+          alignItems: "flex-start",
         },
         [
-          sectionLabel("NEW", newVms.length, avg(newVms)),
-          cardGrid(newVms, leftCols, 1, jackets),
+          sectionPanel(sections[0], true),
+          // 섹션 구분선
+          el("div", {
+            width: DIV_W,
+            alignSelf: "stretch",
+            background: "rgba(255,255,255,0.12)",
+          }),
+          sectionPanel(sections[1], false),
         ],
-      ),
-      // 섹션 구분선
-      el("div", {
-        width: DIV_W,
-        alignSelf: "stretch",
-        background: "rgba(255,255,255,0.12)",
-      }),
-      el(
+      )
+    : el(
         "div",
-        {
-          display: "flex",
-          flexDirection: "column",
-          width: rightWidth,
-          // NEW 패널의 상하 패딩만큼 맞춰 섹션 라벨/카드 높이를 정렬 (가로 패딩은 없음 → 폭 유지)
-          paddingTop: NEW_PAD,
-          paddingBottom: NEW_PAD,
-        },
-        [
-          sectionLabel("OTHERS", otherVms.length, avg(otherVms)),
-          cardGrid(otherVms, rightCols, 1, jackets),
-        ],
-      ),
-    ],
-  );
+        { display: "flex", flexDirection: "column", marginTop: 10 },
+        [sectionPanel(sections[0], false)],
+      );
 
   const root = el(
     "div",
@@ -614,8 +737,8 @@ export async function renderRatingCard(
   const buf = await renderInWorker(root, totalWidth);
 
   // ─── Persist render cache ─────────────────────────────────────────────────
-  // 번역본은 공유 캐시(원제 기준)를 덮어쓰지 않는다.
-  if (!translate) {
+  // 번역본·치환본은 공유 캐시(maimai 원제 기준)를 덮어쓰지 않는다.
+  if (cacheable) {
     await saveRatingCardCache(
       profile.profileKey,
       buf,
