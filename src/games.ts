@@ -84,12 +84,30 @@ export function sdvxRS(ach: number, lv: number, marks: string[] = []): number {
 // ── Arcaea (7.0 기준) ────────────────────────────────────────────────────────
 // 7.0에서 Recent가 폐지되고 Best 30 → Best 50으로 변경되었으며,
 // 50곡 중 상위 10곡에는 포텐셜 2배가 적용된다 (총합은 곡 수 50으로 나눔).
-// 레벨: maimai 0~15.0 → Arcaea 0~12.0 선형 보간
+// 레벨: maimai 1~14.9 → Arcaea 1~11.7 선형 보간. 단 maimai 유일의 15.0 채보
+//       3곡은 개별 고정 (CHUNITHM·SDVX의 lv15 보정과 동일한 방식).
 // 점수: (achInt / 1010000) × 10000000 선형 보간
 // 단일 포텐셜: PM(10M) +2.0 / ≥9.8M: +1.0+(x-9.8M)/200K / 그 외: (x-9.5M)/300K
-export function arcaeaRS(ach: number, lv: number, _marks: string[] = []): number {
+const ARCAEA_LV15_MAP: Record<string, number> = {
+  "Xaleid◆scopiX": 12.0,
+  系ぎて: 11.9,
+  "PANDORA PARADOXXX": 11.9,
+};
+
+export function arcaeaLevel(lv: number, title?: string): number {
+  if (lv >= 15 && title !== undefined && ARCAEA_LV15_MAP[title] !== undefined)
+    return ARCAEA_LV15_MAP[title];
+  return Math.round((1 + (lv - 1) * (10.7 / 13.9)) * 10) / 10;
+}
+
+export function arcaeaRS(
+  ach: number,
+  lv: number,
+  _marks: string[] = [],
+  title?: string,
+): number {
   const achInt = Math.round(ach * 10000);
-  const basePotential = Math.round((lv / 15.0) * 12.0 * 10) / 10;
+  const basePotential = arcaeaLevel(lv, title);
   const score = Math.round((achInt / 1010000) * 10000000);
 
   let potential: number;
@@ -434,6 +452,6 @@ export type { PlayRecord };
 export function getDisplayLv(lv: number, game: GameId, title?: string): number {
   if (game === "chunithm") return chunithmLevel(lv, title);
   if (game === "sdvx") return Math.round((lv / 15.0) * 20.9 * 10) / 10;
-  if (game === "arcaea") return Math.round((lv / 15.0) * 12.0 * 10) / 10;
+  if (game === "arcaea") return arcaeaLevel(lv, title);
   return lv;
 }
