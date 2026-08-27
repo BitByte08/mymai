@@ -6,6 +6,12 @@ import type { PlayRecord } from "./scraper";
 
 export type GameId = "maimai" | "chunithm" | "sdvx" | "arcaea";
 
+// 소수 2자리 내림. Math.floor(10.2 * 100)이 1019가 되는 부동소수점 오차를 피하려고
+// 곱한 뒤 유효 자리에서 한 번 정리하고 내린다.
+function floor2(v: number): number {
+  return Math.floor(Number((v * 100).toFixed(6))) / 100;
+}
+
 export const GAME_IDS: GameId[] = ["maimai", "chunithm", "sdvx", "arcaea"];
 
 // ─── 레이팅 계산식 (mai-log ratingCalc.ts 원본) ───────────────────────────────
@@ -47,7 +53,7 @@ export function chunithmRS(
   const chuniScore = Math.round(ach * 10000); // achievement 정수 그대로
   const chuniLevel = chunithmLevel(lv, title);
   const bonus = getChunithmBonus(chuniScore);
-  return Math.max(0, Math.floor((chuniLevel + bonus) * 100) / 100);
+  return Math.max(0, floor2(chuniLevel + bonus));
 }
 
 // ── SOUND VOLTEX ─────────────────────────────────────────────────────────────
@@ -93,6 +99,7 @@ export function sdvxRS(ach: number, lv: number, marks: string[] = []): number {
 // 특정 곡은 개별 고정 (CHUNITHM·SDVX의 보정과 동일한 방식).
 // 점수: (achInt / 1010000) × 10000000 선형 보간
 // 단일 포텐셜: PM(10M) +2.0 / ≥9.8M: +1.0+(x-9.8M)/200K / 그 외: (x-9.5M)/300K
+//             TRACK COMPLETE 시 위 값에 +0.2 (7.0 기준)
 
 // title → [적용 하한 상수, 고정 레벨]. 하한을 둬서 같은 곡의 하위 채보에는 걸리지 않게 한다.
 const ARCAEA_FIXED: Record<string, readonly [number, number]> = {
@@ -119,10 +126,23 @@ export function arcaeaLevel(lv: number, title?: string): number {
   return lerpLv(lv, 1.0, 13.5, 1.0, 9.9);
 }
 
+// TRACK COMPLETE(클리어) 판정. 카드에 찍히는 클리어 마크(P/F/C vs L)와 같은 기준을 쓴다.
+export const ARCAEA_CLEAR_ACH = 80.8;
+
+export function isArcaeaTrackComplete(ach: number, marks: string[] = []): boolean {
+  return (
+    marks.includes("AP+") ||
+    marks.includes("AP") ||
+    marks.includes("FC+") ||
+    marks.includes("FC") ||
+    ach >= ARCAEA_CLEAR_ACH
+  );
+}
+
 export function arcaeaRS(
   ach: number,
   lv: number,
-  _marks: string[] = [],
+  marks: string[] = [],
   title?: string,
 ): number {
   const achInt = Math.round(ach * 10000);
@@ -138,7 +158,10 @@ export function arcaeaRS(
     potential = basePotential + (score - 9500000) / 300000; // 9.5M 미만 시 음수 가능
   }
 
-  return Math.floor(potential * 100) / 100;
+  // TRACK COMPLETE 고정 가산
+  if (isArcaeaTrackComplete(ach, marks)) potential += 0.2;
+
+  return floor2(potential);
 }
 
 // ─── 점수 / 난이도 / 마크 치환 (mai-log scoreConvert.ts 원본) ─────────────────
@@ -283,7 +306,13 @@ export function buildDisplayMarks(ach: number, marks: string[], game: GameId): s
     const rank = getArcaeaScoreRank(ach);
     const hasAP = marks.includes("AP+") || marks.includes("AP");
     const hasFC = marks.includes("FC+") || marks.includes("FC");
-    const clearMark = hasAP ? "P" : hasFC ? "F" : ach >= 80.8 ? "C" : "L";
+    const clearMark = hasAP
+      ? "P"
+      : hasFC
+        ? "F"
+        : isArcaeaTrackComplete(ach, marks)
+          ? "C"
+          : "L";
     return [rank, clearMark];
   }
   const scoreRank = game === "chunithm" ? getChunithmScoreRank(ach) : getScoreRank(ach);
@@ -384,8 +413,9 @@ export interface GameConfig {
 
 const sum = (xs: number[]) => xs.reduce((s, v) => s + v, 0);
 
-// Arcaea 7.0: Best 50 중 상위 몇 곡에 2배 가중치를 주는지
+// Arcaea 7.0: Best 50 중 상위 10곡은 비중 2배 → 실질 60보면분의 평균이 포텐셜이 된다.
 export const ARCAEA_DOUBLE_COUNT = 10;
+export const ARCAEA_POTENTIAL_DIVISOR = 60;
 
 // 2배 가중치가 붙은 곡의 레이팅 숫자 색 (기본은 흰색)
 export const RS_DEFAULT_COLOR = "#fff";
@@ -419,7 +449,7 @@ export const GAMES: Record<GameId, GameConfig> = {
       { label: "OTHERS", count: 30, cols: 6 },
     ],
     calcRS: chunithmRS,
-    calcTotal: (rs) => Math.floor((sum(rs) / 50) * 100) / 100,
+    calcTotal: (rs) => floor2(sum(rs) / 50),
     formatRS: (v) => v.toFixed(2),
     formatTotal: (v) => v.toFixed(2),
   },
@@ -445,14 +475,14 @@ export const GAMES: Record<GameId, GameConfig> = {
     sections: [{ label: "BEST", count: 50, cols: 10 }],
     doubleCount: ARCAEA_DOUBLE_COUNT,
     calcRS: arcaeaRS,
-    // 상위 10곡은 2배로 계산한 뒤 곡 수 50으로 나눈다.
+    // 상위 10곡은 비중 2배 → 실질 60보면분의 평균.
     calcTotal: (rs) => {
       const sorted = [...rs].sort((a, b) => b - a);
       const weighted = sorted.reduce(
         (acc, v, i) => acc + (i < ARCAEA_DOUBLE_COUNT ? v * 2 : v),
         0,
       );
-      return Math.floor((weighted / 50) * 100) / 100;
+      return floor2(weighted / ARCAEA_POTENTIAL_DIVISOR);
     },
     formatRS: (v) => v.toFixed(2),
     formatTotal: (v) => v.toFixed(2),
