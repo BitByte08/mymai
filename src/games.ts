@@ -11,8 +11,21 @@ export const GAME_IDS: GameId[] = ["maimai", "chunithm", "sdvx", "arcaea"];
 // ─── 레이팅 계산식 (mai-log ratingCalc.ts 원본) ───────────────────────────────
 
 // ── CHUNITHM ─────────────────────────────────────────────────────────────────
-// 레벨: +0.7 / 점수: maimai achievement 정수 그대로 (두 게임 최대 점수 동일)
+// 레벨: maimai 1~14.9 → CHUNITHM 1~15.7 선형 보간. 단 maimai 유일의 15.0 채보
+//       3곡은 서로 구분되도록 개별 고정 (SDVX의 lv15 보정 사례와 동일한 방식).
+// 점수: maimai achievement 정수 그대로 (두 게임 최대 점수 동일)
 // 보정값: 구간별 Math.floor 스텝
+const CHUNITHM_LV15_MAP: Record<string, number> = {
+  "Xaleid◆scopiX": 16.0,
+  系ぎて: 15.9,
+  "PANDORA PARADOXXX": 15.8,
+};
+
+export function chunithmLevel(lv: number, title?: string): number {
+  if (lv >= 15 && title !== undefined && CHUNITHM_LV15_MAP[title] !== undefined)
+    return CHUNITHM_LV15_MAP[title];
+  return Math.round((1 + (lv - 1) * (14.7 / 13.9)) * 10) / 10;
+}
 function getChunithmBonus(score: number): number {
   if (score >= 1009000) return 2.15;
   if (score >= 1007500) return 2.0 + Math.floor((score - 1007500) / 100) * 0.01;
@@ -25,9 +38,14 @@ function getChunithmBonus(score: number): number {
   return -5.0;
 }
 
-export function chunithmRS(ach: number, lv: number, _marks: string[] = []): number {
+export function chunithmRS(
+  ach: number,
+  lv: number,
+  _marks: string[] = [],
+  title?: string,
+): number {
   const chuniScore = Math.round(ach * 10000); // achievement 정수 그대로
-  const chuniLevel = lv + 0.7;
+  const chuniLevel = chunithmLevel(lv, title);
   const bonus = getChunithmBonus(chuniScore);
   return Math.max(0, Math.floor((chuniLevel + bonus) * 100) / 100);
 }
@@ -63,7 +81,9 @@ export function sdvxRS(ach: number, lv: number, marks: string[] = []): number {
   return Math.floor(sdvxLevel * 10 * 2 * (sdvxScore / 10000000) * clearBon * rankBon);
 }
 
-// ── Arcaea ───────────────────────────────────────────────────────────────────
+// ── Arcaea (7.0 기준) ────────────────────────────────────────────────────────
+// 7.0에서 Recent가 폐지되고 Best 30 → Best 50으로 변경되었으며,
+// 50곡 중 상위 10곡에는 포텐셜 2배가 적용된다 (총합은 곡 수 50으로 나눔).
 // 레벨: maimai 0~15.0 → Arcaea 0~12.0 선형 보간
 // 점수: (achInt / 1010000) × 10000000 선형 보간
 // 단일 포텐셜: PM(10M) +2.0 / ≥9.8M: +1.0+(x-9.8M)/200K / 그 외: (x-9.5M)/300K
@@ -295,7 +315,7 @@ export const GAME_DIFF_COLOR: Record<GameId, Record<string, string>> = {
 // sections: 카드 그리드 구성. count/cols는 모두 5행이 되도록 맞춰 카드 폭을 유지한다.
 //   maimai 15@3 + 35@7 / chunithm 20@4 + 30@6 / sdvx 50@10 / arcaea 10@2 + 30@6
 
-export type SelectMode = "newOld" | "top" | "recentBest";
+export type SelectMode = "newOld" | "top";
 
 export interface GameSection {
   readonly label: string;
@@ -310,8 +330,13 @@ export interface GameConfig {
   readonly ratingLabel: string;
   readonly select: SelectMode;
   readonly sections: readonly GameSection[];
-  /** 곡 단위 레이팅 (mai-log 원본 공식) */
-  readonly calcRS: (ach: number, lv: number, marks: string[]) => number;
+  /** 곡 단위 레이팅 (mai-log 원본 공식). title은 곡별 레벨 보정에만 쓰인다. */
+  readonly calcRS: (
+    ach: number,
+    lv: number,
+    marks: string[],
+    title?: string,
+  ) => number;
   /** 선택된 곡들의 RS 합 → 총 레이팅 */
   readonly calcTotal: (rsList: number[]) => number;
   readonly formatRS: (v: number) => string;
@@ -319,6 +344,9 @@ export interface GameConfig {
 }
 
 const sum = (xs: number[]) => xs.reduce((s, v) => s + v, 0);
+
+// Arcaea 7.0: Best 50 중 상위 몇 곡에 2배 가중치를 주는지
+export const ARCAEA_DOUBLE_COUNT = 10;
 
 export const GAMES: Record<GameId, GameConfig> = {
   maimai: {
@@ -370,13 +398,18 @@ export const GAMES: Record<GameId, GameConfig> = {
     label: "Arcaea",
     accent: "#a855f7",
     ratingLabel: "POTENTIAL",
-    select: "recentBest",
-    sections: [
-      { label: "RECENT", count: 10, cols: 2 },
-      { label: "BEST", count: 30, cols: 6 },
-    ],
+    select: "top",
+    sections: [{ label: "BEST", count: 50, cols: 10 }],
     calcRS: arcaeaRS,
-    calcTotal: (rs) => Math.floor((sum(rs) / 40) * 100) / 100,
+    // 상위 10곡은 2배로 계산한 뒤 곡 수 50으로 나눈다.
+    calcTotal: (rs) => {
+      const sorted = [...rs].sort((a, b) => b - a);
+      const weighted = sorted.reduce(
+        (acc, v, i) => acc + (i < ARCAEA_DOUBLE_COUNT ? v * 2 : v),
+        0,
+      );
+      return Math.floor((weighted / 50) * 100) / 100;
+    },
     formatRS: (v) => v.toFixed(2),
     formatTotal: (v) => v.toFixed(2),
   },
@@ -398,8 +431,8 @@ export type { PlayRecord };
 
 // 카드에 표시할 레벨 (mai-log download/page.tsx의 getDisplayLv 원본)
 // 레이팅 공식이 쓰는 환산 스케일과 동일하게 맞춘다.
-export function getDisplayLv(lv: number, game: GameId): number {
-  if (game === "chunithm") return Math.round((lv + 0.7) * 10) / 10;
+export function getDisplayLv(lv: number, game: GameId, title?: string): number {
+  if (game === "chunithm") return chunithmLevel(lv, title);
   if (game === "sdvx") return Math.round((lv / 15.0) * 20.9 * 10) / 10;
   if (game === "arcaea") return Math.round((lv / 15.0) * 12.0 * 10) / 10;
   return lv;

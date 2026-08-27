@@ -90,7 +90,7 @@ function toVM(
   const rs =
     game === "maimai"
       ? calcSongRating(ach, lvNum, fc)
-      : cfg.calcRS(ach, lvNum, markList);
+      : cfg.calcRS(ach, lvNum, markList, r.title);
 
   const allMarks = buildDisplayMarks(ach, markList, game);
   const clearMark =
@@ -120,7 +120,7 @@ function toVM(
         ? constant !== null
           ? constant.toFixed(1)
           : r.level
-        : getDisplayLv(lvNum, game).toFixed(1),
+        : getDisplayLv(lvNum, game, r.title).toFixed(1),
     diff: diffLabel,
     diffColor,
     isDx: r.musicKind === "DX",
@@ -505,39 +505,6 @@ export async function renderRatingCard(
         .slice(0, first.count)
         .map((x) => x.vm);
       sections.push({ label: first.label, cols: first.cols, vms: top });
-    } else {
-      // Arcaea: 최근 30판에서 곡+난이도별 최고 달성률 → 상위 10곡, 나머지는 Best 30
-      let recentRecords: PlayRecord[] = [];
-      try {
-        const parsed = JSON.parse(profile.recentJson || "[]");
-        const arr = Array.isArray(parsed) ? parsed : (parsed.recent ?? []);
-        if (Array.isArray(arr)) recentRecords = arr;
-      } catch {
-        /* ignore */
-      }
-      const recentMap = new Map<string, PlayRecord>();
-      for (const log of recentRecords.slice(0, 30)) {
-        const key = chartKey(fix(log));
-        const existing = recentMap.get(key);
-        if (!existing || log.achievementVal > existing.achievementVal)
-          recentMap.set(key, log);
-      }
-      const recentTop = [...recentMap.values()]
-        .map((r) => ({ key: chartKey(fix(r)), vm: vmOf(r) }))
-        .sort(byRs)
-        .slice(0, first.count);
-      const recentKeys = new Set(recentTop.map((x) => x.key));
-      const best = rated
-        .filter((x) => !recentKeys.has(chartKey(fix(x.r))))
-        .sort(byRs)
-        .slice(0, second.count)
-        .map((x) => x.vm);
-      sections.push({
-        label: first.label,
-        cols: first.cols,
-        vms: recentTop.map((x) => x.vm),
-      });
-      sections.push({ label: second.label, cols: second.cols, vms: best });
     }
 
     const allVms = sections.flatMap((sec) => sec.vms);
