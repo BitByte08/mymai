@@ -64,23 +64,33 @@ export function chunithmRS(
 // ── SOUND VOLTEX ─────────────────────────────────────────────────────────────
 // 반환값: 밀리-VF (정수). 표시 시 / 1000 → 소수점 3자리
 // 공식: floor(sdvxLevel × 10 × 2 × (sdvxScore / 10,000,000) × 클리어 보정 × 랭크 보정)
+// 클리어 보정: 표시되는 SDVX 마크 기준 (PUC 1.10 / UC 1.06 / 그 외 1.00)
 function getSdvxClearBonus(marks: string[]): number {
-  if (marks.includes("AP+")) return 1.10;
-  if (marks.includes("AP") || marks.includes("FC+") || marks.includes("FC")) return 1.06;
-  return 1.0;
+  if (isSdvxPuc(marks)) return 1.10; // PUC (AP / AP+)
+  if (marks.includes("FC+") || marks.includes("FC")) return 1.06; // UC
+  return 1.0; // COMP / PLAYED
 }
 
-function getSdvxRankBonus(achInt: number): number {
-  if (achInt >= 1010000) return 1.05;
-  if (achInt >= 1000000) return 1.02;
-  if (achInt >= 990000) return 1.00;
-  if (achInt >= 970000) return 0.97;
-  if (achInt >= 940000) return 0.94;
-  if (achInt >= 900000) return 0.91;
-  if (achInt >= 800000) return 0.88;
-  if (achInt >= 750000) return 0.85;
-  if (achInt >= 700000) return 0.82;
-  return 0.80;
+// 랭크 기준표 [점수 하한, 랭크명, 랭크 보정]. 환산된 SDVX 점수로 판정한다.
+const SDVX_RANKS: readonly (readonly [number, string, number])[] = [
+  [9900000, "S", 1.05],
+  [9800000, "AAA+", 1.02],
+  [9700000, "AAA", 1.0],
+  [9500000, "AA+", 0.97],
+  [9300000, "AA", 0.94],
+  [9000000, "A+", 0.91],
+  [8700000, "A", 0.88],
+  [7500000, "B", 0.85],
+  [6500000, "C", 0.82],
+  [0, "D", 0.8],
+];
+
+function sdvxRankEntry(score: number): readonly [number, string, number] {
+  return SDVX_RANKS.find((r) => score >= r[0]) ?? SDVX_RANKS[SDVX_RANKS.length - 1];
+}
+
+function getSdvxRankBonus(score: number): number {
+  return sdvxRankEntry(score)[2];
 }
 
 // AP/AP+는 SDVX의 PUC에 해당하므로 점수를 만점(10,000,000)으로 고정한다.
@@ -96,11 +106,10 @@ export function sdvxScoreOf(ach: number, marks: string[] = []): number {
 }
 
 export function sdvxRS(ach: number, lv: number, marks: string[] = []): number {
-  const achInt = Math.round(ach * 10000);
   const sdvxLevel = Math.round((lv / 15.0) * 20.9 * 10) / 10;
   const sdvxScore = sdvxScoreOf(ach, marks);
   const clearBon = getSdvxClearBonus(marks);
-  const rankBon = getSdvxRankBonus(achInt);
+  const rankBon = getSdvxRankBonus(sdvxScore);
   return Math.floor(sdvxLevel * 10 * 2 * (sdvxScore / 10000000) * clearBon * rankBon);
 }
 
@@ -220,17 +229,9 @@ export function getChunithmScoreRank(ach: number): string {
   return "D";
 }
 
-export function getSdvxScoreRank(ach: number): string {
-  if (ach >= 99.99) return "S";
-  if (ach >= 98.98) return "AAA+";
-  if (ach >= 97.97) return "AAA";
-  if (ach >= 95.95) return "AA+";
-  if (ach >= 93.93) return "AA";
-  if (ach >= 90.90) return "A+";
-  if (ach >= 87.87) return "A";
-  if (ach >= 75.75) return "B";
-  if (ach >= 65.65) return "C";
-  return "D";
+// 환산된 SDVX 점수로 랭크를 판정한다 (볼포스의 랭크 보정과 같은 기준).
+export function getSdvxScoreRank(ach: number, marks: string[] = []): string {
+  return sdvxRankEntry(sdvxScoreOf(ach, marks))[1];
 }
 
 export function getArcaeaScoreRank(ach: number): string {
@@ -320,7 +321,7 @@ export function convertMarks(marks: string[], game: GameId): string[] {
 // 카드 우측에 실제로 찍히는 마크 목록 (스코어랭크 + 클리어 마크)
 export function buildDisplayMarks(ach: number, marks: string[], game: GameId): string[] {
   if (game === "sdvx") {
-    const rank = getSdvxScoreRank(ach);
+    const rank = getSdvxScoreRank(ach, marks);
     const hasAP = marks.includes("AP+") || marks.includes("AP");
     const hasFC = marks.includes("FC+") || marks.includes("FC");
     const clearMark = hasAP ? "PUC" : hasFC ? "UC" : ach >= 80.8 ? "COMP" : "PLAYED";
