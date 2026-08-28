@@ -83,10 +83,22 @@ function getSdvxRankBonus(achInt: number): number {
   return 0.80;
 }
 
+// AP/AP+는 SDVX의 PUC에 해당하므로 점수를 만점(10,000,000)으로 고정한다.
+export const SDVX_MAX_SCORE = 10000000;
+
+export function isSdvxPuc(marks: string[] = []): boolean {
+  return marks.includes("AP+") || marks.includes("AP");
+}
+
+export function sdvxScoreOf(ach: number, marks: string[] = []): number {
+  if (isSdvxPuc(marks)) return SDVX_MAX_SCORE;
+  return Math.round((Math.round(ach * 10000) / 1010000) * SDVX_MAX_SCORE);
+}
+
 export function sdvxRS(ach: number, lv: number, marks: string[] = []): number {
   const achInt = Math.round(ach * 10000);
   const sdvxLevel = Math.round((lv / 15.0) * 20.9 * 10) / 10;
-  const sdvxScore = Math.round((achInt / 1010000) * 10000000);
+  const sdvxScore = sdvxScoreOf(ach, marks);
   const clearBon = getSdvxClearBonus(marks);
   const rankBon = getSdvxRankBonus(achInt);
   return Math.floor(sdvxLevel * 10 * 2 * (sdvxScore / 10000000) * clearBon * rankBon);
@@ -232,14 +244,21 @@ export function getArcaeaScoreRank(ach: number): string {
 }
 
 // 달성률 → 각 게임 점수 표기
-export function convertScore(ach: number, game: GameId): string {
+export function convertScore(
+  ach: number,
+  game: GameId,
+  marks: string[] = [],
+): string {
   if (game === "maimai") return ach.toFixed(4) + "%";
 
   let score: number;
   if (game === "chunithm") {
     score = Math.round(ach * 10000);
+  } else if (game === "sdvx") {
+    // PUC(AP/AP+)는 만점 고정, 그 외는 선형 보간
+    score = sdvxScoreOf(ach, marks);
   } else {
-    // sdvx / arcaea: 선형 보간 (achInt / 1010000) × 10,000,000
+    // arcaea: 선형 보간 (achInt / 1010000) × 10,000,000
     score = Math.round((Math.round(ach * 10000) / 1010000) * 10000000);
   }
   return score.toLocaleString();
@@ -467,8 +486,9 @@ export const GAMES: Record<GameId, GameConfig> = {
     sections: [{ label: "VOLFORCE", count: 50, cols: 10 }],
     calcRS: sdvxRS,
     calcTotal: sum,
-    // 밀리-VF → VF (/ 1000)
-    formatRS: (v) => (v / 1000).toFixed(3),
+    // 곡별은 VF × 100으로 표기 (밀리-VF / 1000 × 100 = / 10)
+    formatRS: (v) => (v / 10).toFixed(1),
+    // 총 VOLFORCE는 밀리-VF → VF (/ 1000)
     formatTotal: (v) => (v / 1000).toFixed(3),
   },
   arcaea: {

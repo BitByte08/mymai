@@ -115,7 +115,7 @@ function toVM(
         ? ach > 0
           ? ach.toFixed(4) + "%"
           : r.achievement
-        : convertScore(ach, game),
+        : convertScore(ach, game, markList),
     rs,
     rsText: game === "maimai" ? String(rs) : cfg.formatRS(rs),
     rsColor: RS_DEFAULT_COLOR,
