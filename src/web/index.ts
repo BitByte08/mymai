@@ -3,7 +3,7 @@ import * as fs from "fs";
 import { gunzip } from "zlib";
 import { promisify } from "util";
 import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey } from "../scraper";
-import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum } from "../storage";
+import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress } from "../storage";
 import type { SongAliasRow } from "../storage/types";
 import { buildBookmarkletJs, setBaseUrl, getBaseUrl, buildBookmarklet, BOOKMARKLET_PRESETS, getBookmarkletPresets } from "./bookmarklet";
 import { computeRatingTarget, getAllSongTitles } from "../constants";
@@ -13,6 +13,7 @@ import { isValidAdminToken } from "./adminAuth";
 import { loadAliases } from "../aliases";
 import { CONFIG } from "../config";
 import { hasValidRecordDate, recordPlayedAt } from "../achievements";
+import { evaluateGoal, GOAL_KINDS, type GoalKind } from "../goals";
 
 const isDev = !CONFIG.baseUrl;
 const DISCORD_INVITE_BASE_URL = "https://discord.com/oauth2/authorize";
@@ -792,6 +793,38 @@ a{color:#c084fc}
           canonicalStatus = "achievement_error";
         }
         await saveUserSession(syncUserId, "{}", savedProfileKey, syncServer);
+
+        // 목표(todo) 진행률 재평가. 부가 기능이라 실패해도 프로필 저장 등 핵심 동기화에는
+        // 영향 없도록 별도 try/catch 로 격리한다. 판정은 이번 동기화의 clearRecords 기준.
+        if (userId) {
+          try {
+            const goals = await listGoals(userId);
+            if (goals.length) {
+              const goalCtx = {
+                profile: { rating: effective.rating || 0, clearJson: "[]", server: syncServer },
+                clearRecords,
+              };
+              for (const goal of goals) {
+                try {
+                  const spec = JSON.parse(goal.specJson);
+                  if (!GOAL_KINDS.includes(spec?.kind as GoalKind)) continue;
+                  const evaluation = evaluateGoal(spec, goalCtx);
+                  await updateGoalProgress(
+                    goal.id,
+                    evaluation.progress,
+                    JSON.stringify({ valueText: evaluation.valueText, targetText: evaluation.targetText, detail: evaluation.detail, at: syncStamp }),
+                    evaluation.done ? syncStamp : 0,
+                  );
+                } catch (goalError) {
+                  console.warn(`[web] 목표 평가 실패 goalId=${goal.id}:`, goalError instanceof Error ? goalError.message : goalError);
+                }
+              }
+              console.log(`[web] 목표 ${goals.length}개 재평가 완료 user=${userId.slice(-6)}`);
+            }
+          } catch (goalsError) {
+            console.error("[web] 목표 재평가 실패 (동기화는 계속 진행):", goalsError);
+          }
+        }
 
         const savedMapImages = await cacheMapImages(mapAreas, syncServer);
         console.log(`[web] map images saved: ${savedMapImages}`);

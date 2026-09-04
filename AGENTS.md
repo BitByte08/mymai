@@ -46,7 +46,7 @@ TypeScript LSP was unavailable in this workspace, and codegraph is not indexed. 
 | Symbol / File | Type | Location | Role |
 |---|---|---|---|
 | `COMMANDS` | registry | `src/bot/index.ts` | Registers all slash commands through Discord REST. |
-| `client.on(Events.InteractionCreate)` | router | `src/bot/index.ts` | Dispatches commands plus `serverset:`, `recent:`, `page:`, `share:`, `rt:`, `search:` buttons. |
+| `client.on(Events.InteractionCreate)` | router | `src/bot/index.ts` | Dispatches commands plus `serverset:`, `recent:`, `page:`, `share:`, `rt:`, `search:`, `goal:` buttons. |
 | `startWebServer` | entry | `src/web/index.ts` | Owns all HTTP routes and `/sync` parse/cache pipeline. |
 | `guidePage` | HTML generator | `src/web/index.ts` | `/sync` install UI for PC/mobile plus settings link. |
 | `settingsPage` | HTML generator | `src/web/settingsPage.ts` | Privacy, preset bookmarklets, extra bookmarklet CRUD. |
