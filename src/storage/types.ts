@@ -10,3 +10,5 @@ export interface AchievementPlayEventLogRecord extends AchievementPlayEventLogIn
 export interface DailyAchievementSummary extends AchievementPlayEventLogRecord { achievementGain: number; achievementAfter:number; ratingGain:number; levelConstant?:number|null; }
 export interface ChartClearInput { chartKey:string; achievementVal:number; fc:string; sync:string; }
 export interface ChartClearDiff extends ChartClearInput { achievementBefore:number; }
+export interface GoalRow { id:number; discordUserId:string; kind:string; specJson:string; label:string; progress:number; currentJson:string; completedAt:number; createdAt:number; updatedAt:number; }
+export interface GoalProgressUpdate { id:number; progress:number; currentJson:string; completedAt:number; }

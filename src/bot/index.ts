@@ -24,10 +24,11 @@ import * as random       from "./commands/random";
 import * as areaMap      from "./commands/map";
 import * as report       from "./commands/report";
 import * as aliasAdmin   from "./commands/aliasAdmin";
+import * as goal         from "./commands/goal";
 
 type Command = { data: { toJSON(): object; name: string }; execute: (i: ChatInputCommandInteraction) => Promise<void> };
 
-const COMMANDS: Command[] = [profile, bookmarklet, ratingtable, ratingimage, achievement, fortune, settings, serverSettings, search, status, songrec, random, areaMap, report, aliasAdmin];
+const COMMANDS: Command[] = [profile, bookmarklet, ratingtable, ratingimage, achievement, fortune, settings, serverSettings, search, status, songrec, random, areaMap, report, aliasAdmin, goal];
 const EPHEMERAL_REPLY = { flags: MessageFlags.Ephemeral } as const;
 
 const RATING_CARD_GC_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
@@ -106,6 +107,10 @@ client.on(Events.InteractionCreate, async (i) => {
     }
     if (i.customId.startsWith("serverset:")) {
       try { await serverSettings.handleButton(i); } catch (e) { console.error("[serverset-btn]", e); }
+      return;
+    }
+    if (i.customId.startsWith("goal:")) {
+      try { await goal.handleButton(i); } catch (e) { console.error("[goal-btn]", e); }
       return;
     }
     if (i.customId.startsWith("recent:") || i.customId.startsWith("page:")) {
