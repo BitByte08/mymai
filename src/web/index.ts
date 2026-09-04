@@ -3,7 +3,8 @@ import * as fs from "fs";
 import { gunzip } from "zlib";
 import { promisify } from "util";
 import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey } from "../scraper";
-import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress } from "../storage";
+import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress, getPolicyAck, setPolicyAck } from "../storage";
+import { POLICY_VERSION } from "../policy";
 import type { SongAliasRow } from "../storage/types";
 import { buildBookmarkletJs, setBaseUrl, getBaseUrl, buildBookmarklet, BOOKMARKLET_PRESETS, getBookmarkletPresets } from "./bookmarklet";
 import { computeRatingTarget, getAllSongTitles } from "../constants";
@@ -294,7 +295,8 @@ export function startWebServer(port: number): void {
       const extras = userId ? await getExtraBookmarklets(userId) : [];
       const presetIds = userId ? await getEnabledBookmarkletPresetIds(userId) : [];
       const bookmarklets = [...getBookmarkletPresets(presetIds), ...extras];
-      res.end(buildBookmarkletJs(bookmarklets));
+      const policyNotice = userId ? ((await getPolicyAck(userId)) ?? POLICY_VERSION) < POLICY_VERSION : false;
+      res.end(buildBookmarkletJs(bookmarklets, { policyNotice }));
       return;
     }
 
@@ -852,6 +854,8 @@ a{color:#c084fc}
           console.log(`[web] song jackets saved: ${saved}`);
         }
         console.log(`[web] 저장: ${effective.playerName} ⭐${effective.rating} server=${syncServer} fc=${fc} canonical=${canonicalStatus}`);
+        // 동기화까지 마친 사용자는 현재 방침을 고지받은 것으로 간주 (오버레이 상단에 표시됨)
+        if (!isPreview) { try { await setPolicyAck(syncUserId, POLICY_VERSION); } catch (e) { console.error("[web] policy_ack 갱신 실패:", e); } }
         res.writeHead(200); res.end(canonicalStatus);
       } catch (e) {
         console.error("[web] 동기화 실패:", e);

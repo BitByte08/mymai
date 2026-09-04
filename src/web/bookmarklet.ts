@@ -44,15 +44,34 @@ export function buildBookmarklet(token: string, port: number): string {
   return `javascript:(function(d){var s=d.createElement('script');s.src='${server}/bookmarklet.js?code=${token}&v='+Math.floor(Date.now()/1e5);d.body.append(s)})(document)`;
 }
 
-export function buildBookmarkletJs(extras: Array<{ label: string; code: string; execution?: BookmarkletExecution }>): string {
-  const baseScript = withAchievementInitUi(bookmarkletJs);
-  if (extras.length === 0) return baseScript;
-  const extrasJson = JSON.stringify(extras);
-  const injection = `(function(){var _exbms=${extrasJson};if(_exbms.length>0){addSection('EXTRA');_exbms.forEach(function(bm,i){var _id='ex'+i;var _lbl=bm.label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');addRow(_id,_lbl);try{(0,eval)(bm.code.replace(/^javascript:/,''));okRow(_id,'\\uC2E4\\uD589');}catch(_e){console.warn('[carol] extra:',bm.label,_e);failRow(_id,'\\uC2E4\\uD328');}});}})();`;
+export function buildBookmarkletJs(
+  extras: Array<{ label: string; code: string; execution?: BookmarkletExecution }>,
+  opts: { policyNotice?: boolean } = {},
+): string {
   const marker = "addSection('PROFILE');";
-  const pos = baseScript.indexOf(marker);
-  if (pos === -1) return baseScript;
-  return baseScript.slice(0, pos) + injection + baseScript.slice(pos);
+  let script = withAchievementInitUi(bookmarkletJs);
+
+  // 마커 앞에 주입한 조각은 addSection('PROFILE') 전에, stEl(상태 리스트)이 만들어진 뒤 실행된다.
+  const prepend = (code: string): void => {
+    const pos = script.indexOf(marker);
+    if (pos !== -1) script = script.slice(0, pos) + code + script.slice(pos);
+  };
+
+  // 방침 변경 1회 고지 — 오버레이 맨 위. 업데이트 = 업데이트, 자세히 = 자세히
+  if (opts.policyNotice) {
+    prepend(
+      `(function(){try{var _pn=doc.createElement('div');_pn.style.cssText='padding:10px 0;margin-bottom:4px;border-bottom:1px solid #202020;color:#c084fc;font-size:11px;line-height:1.5';_pn.innerHTML='carol \\uAC1C\\uC778\\uC815\\uBCF4\\uCC98\\uB9AC\\uBC29\\uCE68\\uC774 \\uC5C5\\uB370\\uC774\\uD2B8\\uB418\\uC5C8\\uC2B5\\uB2C8\\uB2E4 (2026-09) \\u00B7 <a href="'+v+'/privacy" target="_blank" rel="noopener" style="color:#c084fc">\\uC790\\uC138\\uD788</a>';stEl.appendChild(_pn);}catch(_e){}})();`,
+    );
+  }
+
+  if (extras.length > 0) {
+    const extrasJson = JSON.stringify(extras);
+    prepend(
+      `(function(){var _exbms=${extrasJson};if(_exbms.length>0){addSection('EXTRA');_exbms.forEach(function(bm,i){var _id='ex'+i;var _lbl=bm.label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');addRow(_id,_lbl);try{(0,eval)(bm.code.replace(/^javascript:/,''));okRow(_id,'\\uC2E4\\uD589');}catch(_e){console.warn('[carol] extra:',bm.label,_e);failRow(_id,'\\uC2E4\\uD328');}});}})();`,
+    );
+  }
+
+  return script;
 }
 
 function withAchievementInitUi(script: string): string {
