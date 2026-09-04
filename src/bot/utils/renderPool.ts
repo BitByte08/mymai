@@ -4,16 +4,18 @@ import * as path from "path";
 // satori(layout)+resvg(rasterize) are synchronous CPU work; running them on the
 // main thread blocks the Discord gateway/web event loop long enough for other
 // users' interactions to time out. Offload to a small worker pool instead.
-// Default 1: the deployed VM has ~950MB total RAM, where a second concurrent
-// V8 isolate isn't worth the extra heap headroom it needs. Raise RENDER_POOL_SIZE
-// if deployed on a bigger box and the render queue backs up.
-const POOL_SIZE = Number(process.env.RENDER_POOL_SIZE) || 1;
+// Default 2: the deployed VM now has ~8GB RAM, so a second concurrent V8 isolate
+// is affordable and lets a multi-page render (e.g. /성과 up to 10 cards) actually
+// run in parallel instead of serialising behind one worker. Raise RENDER_POOL_SIZE
+// further only if the render queue still backs up on a bigger box.
+const POOL_SIZE = Number(process.env.RENDER_POOL_SIZE) || 2;
 
 // Each worker is its own V8 isolate; without an explicit cap its heap can grow
 // independently of the main thread's --max-old-space-size and blow past the
-// container's cgroup mem_limit before either side "notices". Keep it well
-// under BOT_MEM_LIMIT once you add up main thread + POOL_SIZE workers.
-const WORKER_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 32 };
+// container's cgroup mem_limit before either side "notices". 256MB per worker
+// leaves ample headroom under an 8GB host once you add up main thread + POOL_SIZE
+// workers; keep it well under BOT_MEM_LIMIT.
+const WORKER_RESOURCE_LIMITS = { maxOldGenerationSizeMb: 256, maxYoungGenerationSizeMb: 64 };
 
 const ext = path.extname(__filename); // ".js" under dist (prod), ".ts" under ts-node (dev)
 const workerPath = path.join(__dirname, "renderWorker" + ext);

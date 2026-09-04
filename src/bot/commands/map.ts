@@ -25,8 +25,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
-  await interaction.reply({
-    ...(await mapAreaEmbed(cached, interaction.user.id, 0)),
-    flags: MessageFlags.Ephemeral,
-  });
+  // mapAreaEmbed 는 지역 이미지 fetch + 렌더라 3초 ack 한계를 넘길 수 있다. 먼저 defer.
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await interaction.editReply(await mapAreaEmbed(cached, interaction.user.id, 0));
 }

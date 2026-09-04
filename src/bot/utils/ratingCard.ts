@@ -135,9 +135,15 @@ function toVM(
   };
 }
 
-// ─── Jacket prefetch (DB cache → otoge-db) ────────────────────────────────
+// ─── Jacket prefetch (in-memory → DB cache → otoge-db) ────────────────────
 // 레이팅 대상곡 페이지엔 자켓이 없어 otoge-db의 image_url(파일명)로 받아온다.
+// 자켓은 곡 단위라 프로필마다 겹치는 게 대부분이다. 매 렌더마다 DB 조회 + base64
+// 인코딩을 반복하지 않도록 파일명 → data URL(또는 null) 결과를 프로세스 메모리에
+// 캐시한다. 곡 수만큼(수천 개)만 늘어나고 갱신될 일이 없어 상한은 두지 않는다.
+const jacketDataUrlCache = new Map<string, string | null>();
 async function fetchJacketDataUrl(file: string): Promise<string | null> {
+  const memo = jacketDataUrlCache.get(file);
+  if (memo !== undefined) return memo;
   const key = file.replace(/\.png$/, "");
   let buf = await getSongJacket(key);
   if (!buf) {
@@ -151,7 +157,9 @@ async function fetchJacketDataUrl(file: string): Promise<string | null> {
       /* ignore */
     }
   }
-  return buf ? `data:image/png;base64,${buf.toString("base64")}` : null;
+  const dataUrl = buf ? `data:image/png;base64,${buf.toString("base64")}` : null;
+  jacketDataUrlCache.set(file, dataUrl);
+  return dataUrl;
 }
 
 // ─── Card component ───────────────────────────────────────────────────────
