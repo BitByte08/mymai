@@ -97,8 +97,16 @@ SELECT u.chart_key AS "chartKey",u.achievement_val AS "achievementVal",u.fc,u.sy
       [profileKey,keys,vals,fcs,syncs,now]);
     // 순수 SYNC(rank 1)는 멀티플레이에 참여하기만 해도 붙는 등급이라 실력 성과로 보기 어렵다.
     // FS 이상(rank>=2)으로 올라간 경우만 sync 쪽 성과 트리거로 인정한다.
-    return rows.filter((r:any)=>{const sr=syncRank(r.sync), oldSr=syncRank(r.oldSync); return Number(r.achievementVal)>Number(r.achievementBefore)||fcRank(r.fc)>fcRank(r.oldFc)||(sr>=2&&sr>oldSr);})
-      .map((r:any)=>({chartKey:r.chartKey,achievementVal:Number(r.achievementVal),achievementBefore:Number(r.achievementBefore),fc:r.fc,sync:r.sync}));
+    // fcImproved/syncImproved: 이번에 등급이 실제로 올랐는지. 소비자(성과 이벤트)가
+    // "이미 갖고 있던" 마크를 붙이지 않도록 직전값 대비 결과를 함께 돌려준다.
+    return rows.map((r:any)=>{
+      const sr=syncRank(r.sync), oldSr=syncRank(r.oldSync);
+      const fcImproved=fcRank(r.fc)>fcRank(r.oldFc);
+      const syncImproved=sr>=2&&sr>oldSr;
+      const scoreImproved=Number(r.achievementVal)>Number(r.achievementBefore);
+      return {chartKey:r.chartKey,achievementVal:Number(r.achievementVal),achievementBefore:Number(r.achievementBefore),fc:r.fc,sync:r.sync,fcImproved,syncImproved,scoreImproved};
+    }).filter((d:any)=>d.scoreImproved||d.fcImproved||d.syncImproved)
+      .map(({scoreImproved,...d}:any)=>d);
   }
   async saveAchievementPlayEventLogBatch(rawEvents:readonly Db.AchievementPlayEventLogInput[], capturedAt=Date.now()) {
     if(!rawEvents.length) return "ok";

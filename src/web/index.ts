@@ -781,7 +781,9 @@ a{color:#c084fc}
                 sourcePlayId: match?.detailIdx ?? `clear:${d.chartKey}:${d.achievementVal.toFixed(4)}:${syncStamp}`,
                 chartKey: d.chartKey, playedAt, sourceSequence: idx, capturedAt: syncStamp,
                 recordJson: JSON.stringify(match ?? source), achievementVal: d.achievementVal, achievementBefore: d.achievementBefore,
-                fc: d.fc, sync: d.sync, ratingUp: match?.ratingUp,
+                // 이번 동기화에서 새로 얻은 마크만 기록한다. 달성률만 오른 날엔 예전 FC/FS 를 붙이지 않음
+                // (레이팅 표는 clearJson 기준이라 현재 마크를 그대로 표시 — 여긴 "오늘의 성과"용).
+                fc: d.fcImproved ? d.fc : "", sync: d.syncImproved ? d.sync : "", ratingUp: match?.ratingUp,
                 title: source.title, diff: source.diff, level: source.level, musicKind: source.musicKind,
                 achievementText: match?.achievement ?? `${d.achievementVal.toFixed(4)}%`,
               };
