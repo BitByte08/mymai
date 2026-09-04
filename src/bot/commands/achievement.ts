@@ -46,6 +46,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   }
 
   try {
+    // Discord 는 첫 응답까지 3초를 준다. getDailyAchievementSummaries 는 쿼리 +
+    // 집계라 콜드 커넥션 풀에서 그 한계를 넘길 수 있어, 무거운 작업 전에 먼저 defer 한다.
+    await interaction.deferReply();
+    replyDeferred = true;
     const playDay = requestedDay && isPlayDayKey(requestedDay)
       ? requestedDay
       : koreaPlayDayKey(new Date());
@@ -60,16 +64,13 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     console.log(`[성과] 데이터 summaries=${summaries.length} records=${records.length}`);
     if (records.length === 0) {
       console.log(`[성과] 표시할 성과 없음 playDay=${playDay}`);
-      await interaction.reply({
+      await interaction.editReply({
         content: requestedDay
           ? `${playDay}에 의미 있는 성과가 없습니다.`
           : "오늘의 의미 있는 성과가 없습니다.",
-        flags: MessageFlags.Ephemeral,
       });
       return;
     }
-    await interaction.deferReply();
-    replyDeferred = true;
     const avatar = await getAvatarBlob(userId, cached.server);
     const translate = await getTranslateTitles(interaction.user.id);
     const renderStartedAt = Date.now();
