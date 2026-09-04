@@ -8,6 +8,9 @@
     "start": "node dist/bot/index.js",
     "dev": "ts-node src/bot/index.ts",
     "dev:web": "ts-node src/web/dev.ts",
+    "test": "npm run build && npm run test:unit && npm run test:integration",
+    "test:unit": "node --require ./test/setup.cjs --test \"test/unit/**/*.test.js\"",
+    "pretest:integration": "node -e \"const fs=require('fs');fs.existsSync('config.json')||fs.copyFileSync('config.json.example','config.json')\"",
     "test:integration": "npm run build && node --test test/postgres.integration.test.js"
   },
   "keywords": [],
