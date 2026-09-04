@@ -3,8 +3,8 @@ services:
     image: postgres:16-alpine
     container_name: carol-postgres
     restart: unless-stopped
-    mem_limit: ${POSTGRES_MEM_LIMIT:-256m}
-    memswap_limit: ${POSTGRES_MEM_LIMIT:-256m}
+    mem_limit: ${POSTGRES_MEM_LIMIT:-3072m}
+    memswap_limit: ${POSTGRES_MEM_LIMIT:-3072m}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-carol}
       POSTGRES_USER: ${POSTGRES_USER:-carol}
@@ -21,17 +21,18 @@ services:
     image: ghcr.io/team-carol/carol:latest
     container_name: carol-bot
     restart: unless-stopped
-    mem_limit: ${BOT_MEM_LIMIT:-400m}
-    memswap_limit: ${BOT_MEM_LIMIT:-400m}
+    mem_limit: ${BOT_MEM_LIMIT:-4096m}
+    memswap_limit: ${BOT_MEM_LIMIT:-4096m}
     volumes:
       - ./data:/app/data
       - ./config.json:/app/config.json:ro
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env}
-      # 메인 스레드 V8 힙 상한. 여기에 렌더 워커 개수 * 워커별 힙 상한(renderPool.ts)을 더한 값이
-      # BOT_MEM_LIMIT를 넘지 않게 유지할 것 (Node 자체 오버헤드/버퍼용 여유도 남겨둬야 함).
-      NODE_OPTIONS: --max-old-space-size=160
-      RENDER_POOL_SIZE: ${RENDER_POOL_SIZE:-1}
+      # 메인 스레드 V8 힙 상한(MB). 여기에 RENDER_POOL_SIZE * 워커별 힙 상한(renderPool.ts,
+      # 기본 256MB) + 오프힙 버퍼/오버헤드를 더한 값이 BOT_MEM_LIMIT를 넘지 않게 유지할 것.
+      # 예산: 2048(메인) + 2*~320(워커) + ~500(버퍼) ≈ 3200 < 4096.
+      NODE_OPTIONS: --max-old-space-size=${NODE_MAX_OLD_SPACE_MB:-2048}
+      RENDER_POOL_SIZE: ${RENDER_POOL_SIZE:-2}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3456/',r=>{process.exit(r.statusCode===404?0:1)}).on('error',()=>process.exit(1))"]
       interval: 30s
