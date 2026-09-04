@@ -10,6 +10,7 @@ jobs:
   # dev 로 들어오는 모든 변경(PR·push)에서 빌드 + 유닛 + 통합 테스트를 돌린다.
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -17,7 +18,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # Dockerfile(node:22-slim)과 일치
           cache: npm
 
       - name: Install dependencies
@@ -55,6 +56,7 @@ jobs:
   build-master:
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -62,7 +64,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # Dockerfile(node:22-slim)과 일치
           cache: npm
 
       - name: Install dependencies
