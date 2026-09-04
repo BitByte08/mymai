@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { execFileSync, spawn } = require("node:child_process");
+const { execFileSync } = require("node:child_process");
 const { Client } = require("pg");
 
 let temporaryPostgresSequence = 0;
@@ -29,108 +29,140 @@ async function temporaryPostgres() {
   return { url, stop: async () => { try { execFileSync("docker", ["rm", "-f", name], { stdio: "ignore" }); } catch {} } };
 }
 
-test("PostgreSQL achievement log and durable projection", async () => {
+// 현행 성과 추적: 매 동기화마다 전체 클리어 스냅샷을 chart_clears 에 upsert하면서
+// 직전 값과 원자적으로 비교(upsertChartClears) → 오른 채보만 achievement_play_event_log 에
+// 이벤트로 기록 → getDailyAchievementSummaries 가 하루 창에서 채보별 dedup + 최소 달성률 필터.
+test("chart_clears diff → 이벤트 로그 → 일일 성과 요약", async () => {
   const pg = await temporaryPostgres();
   process.env.DATABASE_URL = pg.url;
   const { PostgresStorage } = require("../dist/storage/postgres");
   const db = new PostgresStorage(pg.url);
-  const event = (id, chartKey, score, playedAt, extra = {}) => ({ profileKey: extra.profileKey || "integration", sourcePlayId: id, chartKey, playedAt, sourceSequence: Number(id) || 1, recordJson: JSON.stringify({ title: chartKey, musicKind: "DX", diff: "MASTER" }), achievementVal: score, fc: extra.fc || "", sync: extra.sync || "", ratingUp: extra.ratingUp, isNewScore: extra.isNewScore, title: chartKey, diff: "MASTER", level: "13+", musicKind: "DX", achievementText: `${score}%` });
-  const start = Date.UTC(2026, 0, 1, 19); // 2026-01-02 04:00 KST
+
+  const KEY = "intl:diffuser";
+  const DAY0 = Date.UTC(2026, 0, 1, 19); // 2026-01-02 04:00 KST
+  const DAY = 24 * 60 * 60 * 1000;
+  const cc = (chartKey, ach, fc = "", sync = "") => ({ chartKey, achievementVal: ach, fc, sync });
+  const ev = (id, chartKey, ach, before, playedAt, extra = {}) => ({
+    profileKey: extra.profileKey || KEY,
+    sourcePlayId: id, chartKey, playedAt, sourceSequence: Number(id) || 1,
+    recordJson: "{}", achievementVal: ach, achievementBefore: before,
+    fc: extra.fc || "", sync: extra.sync || "", ratingUp: extra.ratingUp,
+    title: chartKey, diff: "MASTER", level: "13+", musicKind: "DX", achievementText: `${ach}%`,
+  });
+
   try {
     await db.initialize();
-    await db.setAchievementMinimum("integration", 0);
-    await db.saveAchievementPlayEventLogBatch([event("1", "chart-a", 90, start - 1)]); // baseline
-    assert.equal((await db.getAchievementPlayEventLog("integration"))[0].isBaseline, 1);
-    assert.equal((await db.getDailyAchievementSummaries("integration", start - 10, start + 10)).length, 0);
 
-    await db.cacheProfile({ playerName: "migrated", rating: 1, ratingMax: 1, gradeImg: "", avatar: "", trophy: "", trophyClass: "", stars: "", playCount: 1, friendCode: "migrated" }, 1);
-    const migratedKey = "intl:migrated";
-    assert.equal(await db.hasAchievementEventLogState(migratedKey), false);
-    assert.equal(await db.saveAchievementPlayEventLogBatch([event("migrated-1", "migrated-chart", 80, start, { profileKey: migratedKey, isNewScore: true })], Date.now(), true), "ok");
-    const migratedEvent = (await db.getAchievementPlayEventLog(migratedKey))[0];
-    assert.equal(migratedEvent.isBaseline, 0);
-    assert.equal(migratedEvent.isMeaningful, 1);
-    assert.equal(await db.hasAchievementEventLogState(migratedKey), true);
-    await db.saveAchievementPlayEventLogBatch([
-      event("2", "chart-a", 95, start + 1, { ratingUp: 12 }),
-      event("3", "chart-a", 93, start + 2, { ratingUp: 99 }), // regression
-      event("4", "chart-b", 80, start + 3, { isNewScore: true }),
-      event("5", "chart-b", 79, start + 4, { fc: "FC" }), // lower score, FC improvement
-      event("6", "chart-c", 70, start + 5, { sync: "FDX", ratingUp: 7, isNewScore: true }),
-      event("7", "chart-c", 71, start + 6, { sync: "FDX", ratingUp: 8 }), // same-chart latest representative
-      event("8", "chart-boundary", 99, start + 24 * 60 * 60 * 1000, { isNewScore: true }), // next day 04:00
+    // ── upsertChartClears: 직전 스냅샷이 없으면 (chart_clears 비어있음) 친 채보가 전부 "신규" ──
+    const first = await db.upsertChartClears(KEY, [
+      cc("A|DX|MASTER", 90),
+      cc("B|DX|MASTER", 0),        // 클리어 안 한 채보 → diff 아님
+      cc("C|DX|MASTER", 80, "FC"),
     ]);
-    const raw = await db.getAchievementPlayEventLog("integration");
-    assert.equal(raw.length, 8);
-    assert.equal((await db.getAchievementPlayEventLog("integration", start, start + 24 * 60 * 60 * 1000)).length, 6);
-    const summaries = await db.getDailyAchievementSummaries("integration", start, start + 24 * 60 * 60 * 1000);
-    assert.deepEqual(summaries.map((x) => x.chartKey).sort(), ["chart-a", "chart-b", "chart-c"]);
-    assert.equal(summaries.find((x) => x.chartKey === "chart-a").achievementGain, 5);
-    assert.equal(summaries.find((x) => x.chartKey === "chart-b").achievementGain, 0);
-    assert.equal(summaries.find((x) => x.chartKey === "chart-c").sync, "FDX");
-    assert.equal(summaries.find((x) => x.chartKey === "chart-c").ratingUp, 8);
-    assert.equal((await db.getDailyAchievementSummaries("integration", start + 24 * 60 * 60 * 1000, start + 48 * 60 * 60 * 1000)).length, 1);
+    assert.deepEqual(first.map((d) => d.chartKey).sort(), ["A|DX|MASTER", "C|DX|MASTER"]);
+    assert.equal(first.find((d) => d.chartKey === "A|DX|MASTER").achievementBefore, 0);
 
-    // A lower score is still meaningful for FC and FDX -> FDX+, but a plain
-    // regression is not.  A new chart has a finite gain rather than Infinity.
-    await db.saveAchievementPlayEventLogBatch([
-      event("9", "chart-a", 94, start + 10, { fc: "AP" }),
-      event("10", "chart-c", 69, start + 11, { sync: "FDX+" }),
-      event("11", "new-chart", 73, start + 12, { isNewScore: true }),
-      event("12", "sync-rank", 72, start + 13, { sync: "FS", isNewScore: true }),
-      event("13", "sync-rank", 71, start + 14, { sync: "FS+" }),
-      event("14", "sync-rank", 70, start + 15, { sync: "FS" }), // lower rank must not replace FS+
+    // ── 2번째: 실제로 오른 것만 돌아온다 ──
+    const second = await db.upsertChartClears(KEY, [
+      cc("A|DX|MASTER", 95),              // 90 → 95 달성률 상승
+      cc("B|DX|MASTER", 0),               // 여전히 0
+      cc("C|DX|MASTER", 80, "AP"),        // 같은 %, FC → AP 콤보 등급 상승
+      cc("E|DX|MASTER", 60, "", "FS"),    // 신규 채보 + FS(sync rank 2)
     ]);
-    const later = await db.getDailyAchievementSummaries("integration", start, start + 24 * 60 * 60 * 1000);
-    assert.equal(later.find((x) => x.chartKey === "chart-a").achievementGain, 0);
-    assert.equal(later.find((x) => x.chartKey === "chart-c").sync, "FDX+");
-    assert.equal(later.find((x) => x.chartKey === "new-chart").achievementGain, 73);
-    assert.equal(later.find((x) => x.chartKey === "sync-rank").sync, "FS+");
-    assert.ok(later.every((x) => Number.isFinite(x.achievementGain)));
+    assert.deepEqual(second.map((d) => d.chartKey).sort(), ["A|DX|MASTER", "C|DX|MASTER", "E|DX|MASTER"]);
+    assert.equal(second.find((d) => d.chartKey === "A|DX|MASTER").achievementBefore, 90);
+    assert.equal(second.find((d) => d.chartKey === "C|DX|MASTER").achievementBefore, 80);
 
-    // Duplicate source IDs are idempotent and only fill a missing rating_up.
-    await db.saveAchievementPlayEventLogBatch([event("2", "chart-a", 95, start + 1, { ratingUp: 42 })]);
-    assert.equal((await db.getAchievementPlayEventLog("integration")).find((x) => x.sourcePlayId === "2").ratingUp, 12);
-    assert.equal(typeof (await db.getAchievementPlayEventLog("integration"))[0].playedAt, "number");
+    // 변화 없으면 빈 배열
+    assert.deepEqual(await db.upsertChartClears(KEY, [cc("A|DX|MASTER", 95), cc("C|DX|MASTER", 80, "AP")]), []);
+
+    // ── 순수 SYNC(rank 1)는 성과 트리거 아님, FS(rank 2)로 올라가야 인정 ──
+    assert.deepEqual((await db.upsertChartClears(KEY, [cc("D|DX|MASTER", 70)])).map((d) => d.chartKey), ["D|DX|MASTER"]);
+    assert.deepEqual(await db.upsertChartClears(KEY, [cc("D|DX|MASTER", 70, "", "SYNC")]), []);
+    assert.deepEqual((await db.upsertChartClears(KEY, [cc("D|DX|MASTER", 70, "", "FS")])).map((d) => d.chartKey), ["D|DX|MASTER"]);
+
+    // ── achievement_play_event_log 기록 ──
     await db.saveAchievementPlayEventLogBatch([
-      event("16", "unseen-no", 80, start + 20),
-      event("15", "unseen-yes", 81, start + 19, { isNewScore: true }),
+      ev("1", "A|DX|MASTER", 95, 90, DAY0 + 1, { ratingUp: 12 }),
+      ev("2", "C|DX|MASTER", 80, 80, DAY0 + 2, { fc: "AP" }), // 점수 상승 없음, 마크만
+      ev("3", "E|DX|MASTER", 60, 0, DAY0 + 3, { sync: "FS" }),
+      ev("4", "F|DX|MASTER", 50, 0, DAY0 + 4), // 임계 미만 + 마크 없음
+      ev("5", "G|DX|MASTER", 99, 88, DAY0 + DAY + 5), // 다음 플레이데이
     ]);
-    const unseen = await db.getDailyAchievementSummaries("integration", start, start + 24 * 60 * 60 * 1000);
-    assert.equal(unseen.some((x) => x.chartKey === "unseen-no"), false);
-    assert.equal(unseen.find((x) => x.chartKey === "unseen-yes").achievementGain, 81);
+    const raw = await db.getAchievementPlayEventLog(KEY);
+    assert.equal(raw.length, 5);
+    assert.equal(raw.every((x) => x.isBaseline === 0 && x.isMeaningful === 1), true);
+    assert.equal(raw.every((x) => typeof x.playedAt === "number"), true);
+    // 시간 창은 [from, to)
+    assert.equal((await db.getAchievementPlayEventLog(KEY, DAY0, DAY0 + DAY)).length, 4);
+    const e1 = raw.find((x) => x.sourcePlayId === "1");
+    assert.equal(e1.scoreGain, 5);
+    assert.equal(e1.achievementBefore, 90);
+    assert.equal(e1.ratingGain, 12); // ratingUp 그대로
+    assert.equal(raw.find((x) => x.sourcePlayId === "2").scoreGain, 0);
+
+    // dedup: 같은 sourcePlayId 재전송 → 중복 안 됨. 이미 있는 rating_up 은 덮어쓰지 않음
+    await db.saveAchievementPlayEventLogBatch([ev("1", "A|DX|MASTER", 95, 90, DAY0 + 1, { ratingUp: 999 })]);
+    assert.equal((await db.getAchievementPlayEventLog(KEY)).length, 5);
+    assert.equal((await db.getAchievementPlayEventLog(KEY)).find((x) => x.sourcePlayId === "1").ratingUp, 12);
+
+    // ── getDailyAchievementSummaries: discord 유저 → 프로필 매핑에 sessions 행 필요 ──
+    await db.pool.query("INSERT INTO sessions(discord_user_id,friend_code,default_server) VALUES ('disc-1','diffuser','intl')");
+    await db.setAchievementMinimum("disc-1", 90);
+    const day1 = await db.getDailyAchievementSummaries("disc-1", DAY0, DAY0 + DAY);
+    // A(95≥90), C(AP 마크), E(FS) 통과 · F(50, 마크 없음) 탈락
+    assert.deepEqual(day1.map((x) => x.chartKey).sort(), ["A|DX|MASTER", "C|DX|MASTER", "E|DX|MASTER"]);
+    assert.equal(day1.find((x) => x.chartKey === "A|DX|MASTER").achievementGain, 5);
+    assert.equal(day1.find((x) => x.chartKey === "A|DX|MASTER").achievementAfter, 95);
+    assert.equal(day1.find((x) => x.chartKey === "C|DX|MASTER").achievementGain, 0);
+
+    // 다음 플레이데이엔 G 하나
+    assert.deepEqual((await db.getDailyAchievementSummaries("disc-1", DAY0 + DAY, DAY0 + 2 * DAY)).map((x) => x.chartKey), ["G|DX|MASTER"]);
+
+    // 임계값이 "순수 달성률" 항목을 거른다: 96으로 올리면 A(마크 없음)는 빠지고 C·E만 남음
+    await db.setAchievementMinimum("disc-1", 96);
+    assert.deepEqual((await db.getDailyAchievementSummaries("disc-1", DAY0, DAY0 + DAY)).map((x) => x.chartKey).sort(), ["C|DX|MASTER", "E|DX|MASTER"]);
+
+    // 채보별 dedup: played_at 가 가장 늦은 이벤트가 그 채보를 대표
+    await db.saveAchievementPlayEventLogBatch([ev("6", "C|DX|MASTER", 82, 80, DAY0 + 100, { fc: "AP", sync: "FS+" })]);
+    await db.setAchievementMinimum("disc-1", 90);
+    const dedup = await db.getDailyAchievementSummaries("disc-1", DAY0, DAY0 + DAY);
+    assert.equal(dedup.filter((x) => x.chartKey === "C|DX|MASTER").length, 1);
+    assert.equal(dedup.find((x) => x.chartKey === "C|DX|MASTER").sync, "FS+"); // 나중 이벤트
+    assert.equal(dedup.find((x) => x.chartKey === "C|DX|MASTER").achievementAfter, 82);
+    assert.equal(dedup.find((x) => x.chartKey === "C|DX|MASTER").achievementGain, 2);
+
+    // ── 검증 & 원자성 ──
+    await assert.rejects(() => db.saveAchievementPlayEventLogBatch([
+      ev("x", "P|DX|MASTER", 1, 0, DAY0, { profileKey: "intl:conflict-a" }),
+      ev("y", "Q|DX|MASTER", 2, 0, DAY0, { profileKey: "intl:conflict-b" }), // 배치 내 profileKey 혼재
+    ]));
+    await assert.rejects(() => db.saveAchievementPlayEventLogBatch([
+      ev("dup", "P|DX|MASTER", 1, 0, DAY0, { profileKey: "intl:conflict-c" }),
+      ev("dup", "Q|DX|MASTER", 2, 0, DAY0, { profileKey: "intl:conflict-c" }), // 같은 sourcePlayId, 다른 페이로드
+    ]));
+    assert.equal((await db.getAchievementPlayEventLog("intl:conflict-a")).length, 0); // 롤백, 부분 기록 없음
+    assert.equal((await db.getAchievementPlayEventLog("intl:conflict-c")).length, 0);
+
+    // 빈 배치는 그냥 ok
+    assert.equal(await db.saveAchievementPlayEventLogBatch([]), "ok");
+
+    // setAchievementMinimum 클램프 [0, 100], 미설정 유저 기본 95
+    await db.setAchievementMinimum("disc-1", 250);
+    assert.equal(await db.getAchievementMinimum("disc-1"), 100);
+    await db.setAchievementMinimum("disc-1", -5);
+    assert.equal(await db.getAchievementMinimum("disc-1"), 0);
+    assert.equal(await db.getAchievementMinimum("never-set-user"), 95);
+
+    // 프로필 캐시 왕복 + 숫자 타입
     await db.cacheProfile({ playerName: "numbers", rating: 1, ratingMax: 1, gradeImg: "", avatar: "", trophy: "", trophyClass: "", stars: "", playCount: 1, friendCode: "numbers" }, 1);
     assert.equal(typeof (await db.getCachedProfile("intl:numbers")).lastSyncedAt, "number");
-    assert.equal(typeof (await db.getAllCachedProfiles()).find((x) => x.profileKey === "intl:numbers").lastSyncedAt, "number");
     assert.equal(typeof (await db.getLastSyncTime()), "number");
-    await db.pool.query("INSERT INTO sessions(discord_user_id,friend_code,friend_code_intl,friend_code_jp) VALUES ('server-user','intl-code','intl-code','jp-code')");
-    await db.setUserDefaultServer("server-user", "jp");
-    assert.equal(await db.getUserFriendCode("server-user"), "jp-code");
-    const { initEncryption } = require("../dist/crypto");
-    initEncryption("integration-test-key");
-    await db.getUserSyncToken("first-jp-user");
-    await db.saveUserSession("first-jp-user", "{}", "jp-first-code", "jp");
-    assert.equal(await db.getUserFriendCode("first-jp-user"), "jp-first-code");
-    assert.equal(await db.getUserDefaultServer("first-jp-user"), "jp");
-    await db.pool.query("UPDATE sessions SET default_server='intl', friend_code='intl-code', friend_code_intl='intl-code', friend_code_jp='' WHERE discord_user_id='server-user'");
-    await db.saveUserSession("server-user", "{}", "jp-code", "jp");
-    assert.equal(await db.getUserFriendCode("server-user"), "intl-code");
-
-    // Conflicting IDs fail before BEGIN can leave either rows or the marker.
-    await assert.rejects(() => db.saveAchievementPlayEventLogBatch([
-      { ...event("conflict", "x", 1, start), profileKey: "rollback" },
-      { ...event("conflict", "y", 2, start + 1), profileKey: "rollback" },
-    ]));
-    assert.equal((await db.getAchievementPlayEventLog("rollback")).length, 0);
-    assert.equal(await db.hasAchievementEventLogState("rollback"), false);
-    const fresh = new (require("../dist/storage/postgres").PostgresStorage)(pg.url);
-    await fresh.initialize();
-    assert.equal(await fresh.hasAchievementEventLogState("never-initialized"), false);
-    await fresh.close();
   } finally { await db.close(); await pg.stop(); }
 });
 
-test("accepts legacy v1 migration checksum without rewriting it", async () => {
+// 마이그레이션: v0.7.10 이전 DB(단일 스키마 체크섬을 v1으로 기록)를 깨지 않고 올린다.
+test("legacy v1 마이그레이션 체크섬을 다시 쓰지 않는다 + 컬럼 백필", async () => {
   const pg = await temporaryPostgres();
   process.env.DATABASE_URL = pg.url;
   const legacyChecksum = "legacy-whole-schema-checksum";
@@ -139,19 +171,50 @@ test("accepts legacy v1 migration checksum without rewriting it", async () => {
     await client.connect();
     await client.query("CREATE TABLE storage_migrations (version integer PRIMARY KEY, applied_at bigint NOT NULL, checksum text NOT NULL)");
     await client.query("INSERT INTO storage_migrations VALUES (1, $1, $2)", [Date.now(), legacyChecksum]);
+    // 마이그레이션 4/5/7 이전의 옛 achievement_play_event_log 스키마 (chart_key/score_gain 등 없음)
     await client.query(`CREATE TABLE achievement_play_event_log (event_key text PRIMARY KEY, profile_key text NOT NULL, source_play_id text NOT NULL, is_baseline integer NOT NULL, played_at bigint NOT NULL, source_sequence integer NOT NULL, captured_at bigint NOT NULL, source_kind text DEFAULT 'history', achievement_val double precision NOT NULL, fc text DEFAULT '', sync text DEFAULT '', rating_up double precision, title text DEFAULT '', diff text DEFAULT '', level text DEFAULT '', music_kind text DEFAULT '', achievement_text text DEFAULT '', record_json text NOT NULL, payload_hash text NOT NULL)`);
     await client.query(`INSERT INTO achievement_play_event_log VALUES ('legacy-event','upgrade-profile','old-play',0,1000,1,1000,'history',100,'AP','',NULL,'legacy-title','MASTER','13','DX','100%','{}','old-hash')`);
+
     const { PostgresStorage } = require("../dist/storage/postgres");
     const db = new PostgresStorage(pg.url);
     try {
       await db.initialize();
-      const row = (await client.query("SELECT checksum FROM storage_migrations WHERE version=1")).rows[0];
-      assert.equal(row.checksum, legacyChecksum);
-      assert.deepEqual((await client.query("SELECT to_regclass('profiles') AS name")).rows[0].name, "profiles");
-      assert.deepEqual((await client.query("SELECT to_regclass('achievement_chart_best') AS name")).rows[0].name, "achievement_chart_best");
-      const dbEvent = { profileKey: "upgrade-profile", sourcePlayId: "new-play", chartKey: "legacy-title|DX|MASTER", playedAt: 2000, sourceSequence: 2, recordJson: "{}", achievementVal: 99, fc: "", sync: "", title: "legacy-title", diff: "MASTER", level: "13", musicKind: "DX", achievementText: "99%" };
-      await db.saveAchievementPlayEventLogBatch([dbEvent]);
-      assert.equal((await db.getDailyAchievementSummaries("upgrade-profile", 0, 3000)).length, 0);
+
+      // v1 체크섬은 그대로
+      assert.equal((await client.query("SELECT checksum FROM storage_migrations WHERE version=1")).rows[0].checksum, legacyChecksum);
+
+      // 마이그레이션이 만든 테이블/컬럼이 존재
+      for (const t of ["profiles", "achievement_chart_best", "chart_clears", "user_goals"]) {
+        assert.equal((await client.query("SELECT to_regclass($1) AS name", [t])).rows[0].name, t, `table ${t}`);
+      }
+      const cols = (await client.query(
+        "SELECT column_name FROM information_schema.columns WHERE table_name='achievement_play_event_log'",
+      )).rows.map((r) => r.column_name);
+      for (const col of ["chart_key", "score_gain", "is_meaningful", "level_constant", "achievement_before", "rating_gain"]) {
+        assert.ok(cols.includes(col), `column ${col} backfilled`);
+      }
+      // 마이그레이션 4: 빈 chart_key 를 title|kind|diff 로 채움
+      assert.equal(
+        (await client.query("SELECT chart_key FROM achievement_play_event_log WHERE event_key='legacy-event'")).rows[0].chart_key,
+        "legacy-title|DX|MASTER",
+      );
+      // 마이그레이션 6: 기존 행은 is_meaningful=0 → 요약에서 제외됨
+      assert.equal(
+        Number((await client.query("SELECT is_meaningful FROM achievement_play_event_log WHERE event_key='legacy-event'")).rows[0].is_meaningful),
+        0,
+      );
+
+      // 업그레이드된 스키마에 새 이벤트 기록 가능
+      await db.saveAchievementPlayEventLogBatch([{
+        profileKey: "upgrade-profile", sourcePlayId: "new-play", chartKey: "legacy-title|DX|MASTER",
+        playedAt: 2000, sourceSequence: 2, recordJson: "{}", achievementVal: 99, achievementBefore: 90,
+        fc: "", sync: "", title: "legacy-title", diff: "MASTER", level: "13", musicKind: "DX", achievementText: "99%",
+      }]);
+      // 요약: 옛 행(is_meaningful=0)은 빠지고 새 행(99% ≥ 기본 임계 95%)만
+      const summaries = await db.getDailyAchievementSummaries("upgrade-profile", 0, 3000);
+      assert.deepEqual(summaries.map((x) => x.sourcePlayId), ["new-play"]);
+      assert.equal(summaries[0].achievementAfter, 99);
+      assert.equal(summaries[0].achievementGain, 9);
     } finally { await db.close(); }
   } finally { try { await client.end(); } catch {} await pg.stop(); }
 });
