@@ -3,7 +3,8 @@ import * as fs from "fs";
 import { gunzip } from "zlib";
 import { promisify } from "util";
 import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey } from "../scraper";
-import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum } from "../storage";
+import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress, getPolicyAck, setPolicyAck } from "../storage";
+import { POLICY_VERSION } from "../policy";
 import type { SongAliasRow } from "../storage/types";
 import { buildBookmarkletJs, setBaseUrl, getBaseUrl, buildBookmarklet, BOOKMARKLET_PRESETS, getBookmarkletPresets } from "./bookmarklet";
 import { computeRatingTarget, getAllSongTitles } from "../constants";
@@ -13,6 +14,7 @@ import { isValidAdminToken } from "./adminAuth";
 import { loadAliases } from "../aliases";
 import { CONFIG } from "../config";
 import { hasValidRecordDate, recordPlayedAt } from "../achievements";
+import { evaluateGoal, GOAL_KINDS, type GoalKind } from "../goals";
 
 const isDev = !CONFIG.baseUrl;
 const DISCORD_INVITE_BASE_URL = "https://discord.com/oauth2/authorize";
@@ -293,7 +295,8 @@ export function startWebServer(port: number): void {
       const extras = userId ? await getExtraBookmarklets(userId) : [];
       const presetIds = userId ? await getEnabledBookmarkletPresetIds(userId) : [];
       const bookmarklets = [...getBookmarkletPresets(presetIds), ...extras];
-      res.end(buildBookmarkletJs(bookmarklets));
+      const policyNotice = userId ? ((await getPolicyAck(userId)) ?? POLICY_VERSION) < POLICY_VERSION : false;
+      res.end(buildBookmarkletJs(bookmarklets, { policyNotice }));
       return;
     }
 
@@ -310,11 +313,12 @@ p{margin:8px 0}
 a{color:#c084fc}
 </style></head><body>
 <h1>개인정보처리방침</h1>
-<p>최종 수정일: 2026년 6월</p>
+<p>최종 수정일: 2026년 9월</p>
 <h2>1. 수집하는 정보</h2>
 <p>본 봇은 Discord 사용자 ID, maimai DX net 프로필 데이터(플레이어명, 레이팅, 칭호, 클래스, 아바타 이미지, 최근 플레이 기록, 재킷 이미지)를 수집합니다.</p>
 <h2>2. 수집 방법</h2>
-<p>사용자가 브라우저에서 북마클릿을 실행하여 maimai DX net에서 직접 데이터를 서버로 전송합니다. SEGA ID, 비밀번호 등 계정 정보는 절대 수집하지 않습니다.</p>
+<p>사용자가 maimai DX net에 로그인된 브라우저에서 <strong>북마클릿</strong> 또는 <strong>캐롤익스텐션(비공식 크롬 확장)</strong>을 실행하여, 해당 페이지의 HTML을 사용자 브라우저에서 직접 서버로 전송합니다. SEGA ID, 비밀번호 등 계정 정보는 절대 수집하지 않습니다.</p>
+<p>캐롤익스텐션을 쓰는 경우, 사용자가 확장 설정에서 동기화를 명시적으로 켜고 동기화 토큰을 등록해야 합니다. 동기화는 (1) maimai DX net 화면의 버튼을 눌렀을 때, 또는 (2) 사용자가 "자동" 모드를 켠 경우 홈 화면에 접속했고 플레이 횟수가 지난 동기화 이후 변한 것이 확인됐을 때에만 실행됩니다. 백그라운드 상시 수집은 하지 않으며, 전송되는 데이터의 종류와 목적은 북마클릿과 동일합니다.</p>
 <h2>3. 데이터 저장</h2>
 <p>모든 데이터는 서버 내 SQLite 데이터베이스에 암호화하여 저장됩니다. 아바타 및 재킷 이미지는 base64 인코딩되어 저장됩니다.</p>
 <h2>4. 데이터 사용 목적</h2>
@@ -322,7 +326,7 @@ a{color:#c084fc}
 <h2>5. 제3자 제공</h2>
 <p>수집된 데이터를 제3자에게 제공하지 않습니다.</p>
 <h2>6. 데이터 삭제</h2>
-<p>/프로필 데이터는 북마클릿 재실행 시 덮어쓰기됩니다. 완전한 삭제를 원하시면 봇 관리자에게 요청해 주세요.</p>
+<p>/프로필 데이터는 북마클릿 또는 캐롤익스텐션으로 동기화할 때마다 덮어쓰기됩니다. 완전한 삭제를 원하시면 봇 관리자에게 요청해 주세요.</p>
 </body></html>`);
       return;
     }
@@ -340,13 +344,13 @@ p{margin:8px 0}
 a{color:#c084fc}
 </style></head><body>
 <h1>이용약관</h1>
-<p>최종 수정일: 2026년 6월</p>
+<p>최종 수정일: 2026년 9월</p>
 <h2>1. 서비스 설명</h2>
 <p>carolbot은 Discord에서 SEGA의 아케이드 리듬 게임 「maimai DX」의 공식 웹사이트(maimai DX net) 프로필을 조회할 수 있는 비공식 팬 메이드 봇입니다.</p>
 <h2>2. 저작권</h2>
 <p>본 서비스는 SEGA와 공식적으로 제휴, 후원 또는 승인되지 않았습니다. maimai DX, maimai DX net 및 관련된 모든 게임 자산, 캐릭터, 음악, 이미지, 상표의 저작권 및 모든 권리는 <strong>SEGA Corporation</strong>에 있습니다. 본 봇은 팬 목적으로만 운영됩니다.</p>
 	<h2>3. 사용자 책임</h2>
-	<p>사용자는 maimai DX net에 로그인된 상태에서 북마클릿을 실행하여 데이터를 전송합니다. 이 과정에서 발생하는 모든 책임은 사용자에게 있습니다.</p>
+	<p>사용자는 maimai DX net에 로그인된 상태에서 북마클릿 또는 캐롤익스텐션(비공식 크롬 확장)을 실행하여 데이터를 전송합니다. 이 과정에서 발생하는 모든 책임은 사용자에게 있습니다. 캐롤익스텐션은 carolbot과 별개로 배포되는 비공식 소프트웨어이며, 사용자가 직접 설치하고 동기화를 활성화한 경우에만 동작합니다.</p>
 	<h2>4. 추가 북마클릿 사용 책임</h2>
 	<p>사용자가 직접 추가하거나 활성화한 외부 북마클릿, 프리셋 외 스크립트, 제3자 제공 코드의 실행 여부와 결과는 전적으로 사용자 본인의 판단과 책임에 따릅니다. carolbot은 해당 스크립트를 작성, 검증, 통제하지 않으며, 그로 인해 발생하는 데이터 손실, 계정 문제, 보안 사고, 서비스 이용 제한, 기타 손해에 대해 책임을 지지 않습니다.</p>
 	<h2>5. 서비스 중단</h2>
@@ -780,7 +784,9 @@ a{color:#c084fc}
                 sourcePlayId: match?.detailIdx ?? `clear:${d.chartKey}:${d.achievementVal.toFixed(4)}:${syncStamp}`,
                 chartKey: d.chartKey, playedAt, sourceSequence: idx, capturedAt: syncStamp,
                 recordJson: JSON.stringify(match ?? source), achievementVal: d.achievementVal, achievementBefore: d.achievementBefore,
-                fc: d.fc, sync: d.sync, ratingUp: match?.ratingUp,
+                // 이번 동기화에서 새로 얻은 마크만 기록한다. 달성률만 오른 날엔 예전 FC/FS 를 붙이지 않음
+                // (레이팅 표는 clearJson 기준이라 현재 마크를 그대로 표시 — 여긴 "오늘의 성과"용).
+                fc: d.fcImproved ? d.fc : "", sync: d.syncImproved ? d.sync : "", ratingUp: match?.ratingUp,
                 title: source.title, diff: source.diff, level: source.level, musicKind: source.musicKind,
                 achievementText: match?.achievement ?? `${d.achievementVal.toFixed(4)}%`,
               };
@@ -792,6 +798,38 @@ a{color:#c084fc}
           canonicalStatus = "achievement_error";
         }
         await saveUserSession(syncUserId, "{}", savedProfileKey, syncServer);
+
+        // 목표(todo) 진행률 재평가. 부가 기능이라 실패해도 프로필 저장 등 핵심 동기화에는
+        // 영향 없도록 별도 try/catch 로 격리한다. 판정은 이번 동기화의 clearRecords 기준.
+        if (userId) {
+          try {
+            const goals = await listGoals(userId);
+            if (goals.length) {
+              const goalCtx = {
+                profile: { rating: effective.rating || 0, clearJson: "[]", server: syncServer },
+                clearRecords,
+              };
+              for (const goal of goals) {
+                try {
+                  const spec = JSON.parse(goal.specJson);
+                  if (!GOAL_KINDS.includes(spec?.kind as GoalKind)) continue;
+                  const evaluation = evaluateGoal(spec, goalCtx);
+                  await updateGoalProgress(
+                    goal.id,
+                    evaluation.progress,
+                    JSON.stringify({ valueText: evaluation.valueText, targetText: evaluation.targetText, detail: evaluation.detail, at: syncStamp }),
+                    evaluation.done ? syncStamp : 0,
+                  );
+                } catch (goalError) {
+                  console.warn(`[web] 목표 평가 실패 goalId=${goal.id}:`, goalError instanceof Error ? goalError.message : goalError);
+                }
+              }
+              console.log(`[web] 목표 ${goals.length}개 재평가 완료 user=${userId.slice(-6)}`);
+            }
+          } catch (goalsError) {
+            console.error("[web] 목표 재평가 실패 (동기화는 계속 진행):", goalsError);
+          }
+        }
 
         const savedMapImages = await cacheMapImages(mapAreas, syncServer);
         console.log(`[web] map images saved: ${savedMapImages}`);
@@ -816,6 +854,8 @@ a{color:#c084fc}
           console.log(`[web] song jackets saved: ${saved}`);
         }
         console.log(`[web] 저장: ${effective.playerName} ⭐${effective.rating} server=${syncServer} fc=${fc} canonical=${canonicalStatus}`);
+        // 동기화까지 마친 사용자는 현재 방침을 고지받은 것으로 간주 (오버레이 상단에 표시됨)
+        if (!isPreview) { try { await setPolicyAck(syncUserId, POLICY_VERSION); } catch (e) { console.error("[web] policy_ack 갱신 실패:", e); } }
         res.writeHead(200); res.end(canonicalStatus);
       } catch (e) {
         console.error("[web] 동기화 실패:", e);

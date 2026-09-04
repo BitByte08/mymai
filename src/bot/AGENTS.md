@@ -25,6 +25,7 @@ src/bot/
 | Search command | `commands/search.ts`, `utils/embeds.ts` | `search:{userId}:{encodedQuery}:{pageIdx}` buttons. |
 | Rating table/image | `commands/ratingtable.ts`, `commands/ratingimage.ts` | `/레이팅표` uses PNG cache. |
 | Bot status | `commands/status.ts` | Operational counts/timestamps. |
+| Goal tracking | `commands/goal.ts`, `src/goals.ts` | `/목표` 추가/목록/삭제; specs evaluated against cached profile + re-scored on every `/sync`. |
 | Role assignment | `utils/roles.ts` | Rating-tier roles, guild setting gate. |
 | Rating card renderer | `utils/ratingCard.ts` | Largest file; satori element helper, no JSX. |
 
@@ -48,6 +49,7 @@ src/bot/
 | `share:` | recent share button | `share:{userId}:{gameIdx}:{songIdx}` |
 | `rt:` | rating table button | `rt:{userId}` |
 | `search:` | search pagination | `search:{userId}:{encodedQuery}:{pageIdx}` |
+| `goal:` | `commands/goal.ts` goal list pagination | `goal:{ownerId}:{pageIdx}` (`goal:{ownerId}:page` = inert page counter) |
 
 ## ANTI-PATTERNS
 

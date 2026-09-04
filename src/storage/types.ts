@@ -9,4 +9,8 @@ export interface AchievementPlayEventLogInput { profileKey:string; sourcePlayId?
 export interface AchievementPlayEventLogRecord extends AchievementPlayEventLogInput { eventKey:string; payloadHash:string; scoreGain?:number; isMeaningful?:boolean; levelConstant?:number|null; ratingGain?:number; }
 export interface DailyAchievementSummary extends AchievementPlayEventLogRecord { achievementGain: number; achievementAfter:number; ratingGain:number; levelConstant?:number|null; }
 export interface ChartClearInput { chartKey:string; achievementVal:number; fc:string; sync:string; }
-export interface ChartClearDiff extends ChartClearInput { achievementBefore:number; }
+// fcImproved/syncImproved: 이번 동기화에서 콤보/싱크 등급이 실제로 올라갔는지.
+// 성과 이벤트에 "이미 갖고 있던" 마크(예: 달성률만 오른 날의 예전 FS)를 붙이지 않기 위함.
+export interface ChartClearDiff extends ChartClearInput { achievementBefore:number; fcImproved:boolean; syncImproved:boolean; }
+export interface GoalRow { id:number; discordUserId:string; kind:string; specJson:string; label:string; progress:number; currentJson:string; completedAt:number; createdAt:number; updatedAt:number; }
+export interface GoalProgressUpdate { id:number; progress:number; currentJson:string; completedAt:number; }

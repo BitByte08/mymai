@@ -36,6 +36,14 @@ const MARK_COLOR: Record<string, string> = {
 
 const jacketCache = new Map<string, string | null>();
 
+// 성과 카드 렌더 결과 캐시. /성과 는 한 번에 최대 10장을 그리고, 같은 유저가
+// 반복 호출하거나 다른 사람이 조회할 때마다 satori+resvg 전체를 다시 돌린다.
+// (유저·날짜·마지막 동기화 시각·번역여부·페이지) 키로 PNG 를 재사용한다.
+// lastSyncedAt 이 키에 들어가므로 새 동기화 후에는 자연스럽게 무효화된다.
+const ACH_CARD_VERSION = 1;
+const ACH_CARD_CACHE_MAX = 48;
+const achCardCache = new Map<string, Buffer>();
+
 type El = {
   type: string;
   props: {
@@ -250,6 +258,14 @@ export async function renderAchievementCard(
   const clampedPage = Math.min(Math.max(0, pageIndex), totalPages - 1);
   const rankOffset = clampedPage * pageSize;
   const topRecords = sortedRecords.slice(rankOffset, rankOffset + pageSize);
+
+  const cacheKey = [
+    profile.profileKey, playDay, profile.lastSyncedAt, translate ? 1 : 0,
+    clampedPage, pageSize, sortedRecords.length, avatarBuf?.length ?? 0, ACH_CARD_VERSION,
+  ].join("|");
+  const memo = achCardCache.get(cacheKey);
+  if (memo) return memo;
+
   const avatarUrl = avatarBuf ? `data:image/png;base64,${avatarBuf.toString("base64")}` : "";
   const jacketUrls = new Map<string, string | null>();
   await Promise.all(
@@ -312,5 +328,11 @@ export async function renderAchievementCard(
     ? topRecords.length * RECORD_ROW_HEIGHT + Math.max(0, topRecords.length - 1) * ROW_GAP + 16
     : EMPTY_BODY_HEIGHT;
   const height = HEADER_HEIGHT + bodyHeight + 8;
-  return renderInWorker(root, width, height);
+  const png = await renderInWorker(root, width, height);
+  if (achCardCache.size >= ACH_CARD_CACHE_MAX) {
+    const oldest = achCardCache.keys().next().value;
+    if (oldest !== undefined) achCardCache.delete(oldest);
+  }
+  achCardCache.set(cacheKey, png);
+  return png;
 }

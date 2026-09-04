@@ -1,8 +1,9 @@
 import { Client, Events, GatewayIntentBits, ChatInputCommandInteraction, ButtonInteraction, REST, Routes, MessageFlags } from "discord.js";
 import { initEncryption } from "../crypto";
-import { startWebServer, setBaseUrl, setGuildCountProvider } from "../web";
-import { closeStorage, initializeStorage, loadUserSession, getCachedProfile, clearRatingCardCacheForInactive, getTranslateTitles } from "../storage";
+import { startWebServer, setBaseUrl, setGuildCountProvider, getBaseUrl } from "../web";
+import { closeStorage, initializeStorage, loadUserSession, getCachedProfile, clearRatingCardCacheForInactive, getTranslateTitles, getPolicyAck, setPolicyAck } from "../storage";
 import { CONFIG, PORT } from "../config";
+import { POLICY_VERSION, policyNoticeText } from "../policy";
 import { recentEmbeds, rtTableEmbed, searchResultEmbeds, getSearchCtx, mapAreaEmbed } from "./utils/embeds";
 
 import { loadConstants } from "../constants";
@@ -24,10 +25,11 @@ import * as random       from "./commands/random";
 import * as areaMap      from "./commands/map";
 import * as report       from "./commands/report";
 import * as aliasAdmin   from "./commands/aliasAdmin";
+import * as goal         from "./commands/goal";
 
 type Command = { data: { toJSON(): object; name: string }; execute: (i: ChatInputCommandInteraction) => Promise<void> };
 
-const COMMANDS: Command[] = [profile, bookmarklet, ratingtable, ratingimage, achievement, fortune, settings, serverSettings, search, status, songrec, random, areaMap, report, aliasAdmin];
+const COMMANDS: Command[] = [profile, bookmarklet, ratingtable, ratingimage, achievement, fortune, settings, serverSettings, search, status, songrec, random, areaMap, report, aliasAdmin, goal];
 const EPHEMERAL_REPLY = { flags: MessageFlags.Ephemeral } as const;
 
 const RATING_CARD_GC_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
@@ -76,6 +78,21 @@ client.once(Events.ClientReady, async (c) => {
   console.log("[maimai] 준비 완료");
 });
 
+// 개인정보처리방침이 바뀌면(POLICY_VERSION 상향) 등록 사용자에게 다음 명령 실행 시 1회 고지.
+// 명령 응답 뒤 ephemeral 팔로업으로 붙이고, 성공하면 policy_ack 를 올려 다시 안 뜨게 한다.
+// 세션 행이 없는(= carol 을 쓴 적 없는) 사용자는 대상 아님(getPolicyAck 이 null).
+async function maybeSendPolicyNotice(i: ChatInputCommandInteraction): Promise<void> {
+  try {
+    if (!i.replied && !i.deferred) return;
+    const ack = await getPolicyAck(i.user.id);
+    if (ack === null || ack >= POLICY_VERSION) return;
+    await i.followUp({ content: policyNoticeText(getBaseUrl(PORT)), flags: MessageFlags.Ephemeral });
+    await setPolicyAck(i.user.id, POLICY_VERSION);
+  } catch (e) {
+    console.error("[policy-notice]", e);
+  }
+}
+
 client.on(Events.InteractionCreate, async (i) => {
   if (i.isChatInputCommand()) {
     const cmd = COMMANDS.find((c) => c.data.name === i.commandName);
@@ -85,6 +102,7 @@ client.on(Events.InteractionCreate, async (i) => {
     } catch (e) {
       console.error(`[cmd:${i.commandName}]`, e);
     }
+    await maybeSendPolicyNotice(i);
     return;
   }
   if (i.isMessageContextMenuCommand()) {
@@ -106,6 +124,10 @@ client.on(Events.InteractionCreate, async (i) => {
     }
     if (i.customId.startsWith("serverset:")) {
       try { await serverSettings.handleButton(i); } catch (e) { console.error("[serverset-btn]", e); }
+      return;
+    }
+    if (i.customId.startsWith("goal:")) {
+      try { await goal.handleButton(i); } catch (e) { console.error("[goal-btn]", e); }
       return;
     }
     if (i.customId.startsWith("recent:") || i.customId.startsWith("page:")) {

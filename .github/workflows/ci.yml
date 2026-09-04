@@ -2,13 +2,42 @@ name: CI
 
 on:
   pull_request:
-    branches: [master]
+    branches: [master, dev]
   push:
-    branches: [master]
+    branches: [master, dev]
 
 jobs:
+  # dev 로 들어오는 모든 변경(PR·push)에서 빌드 + 유닛 + 통합 테스트를 돌린다.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # Dockerfile(node:22-slim)과 일치
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      # test/postgres.integration.test.js 가 postgres:16 컨테이너를 직접 띄운다
+      # (ubuntu 러너에 docker 기본 제공, 케이스마다 격리된 컨테이너).
+      - name: Integration tests (PostgreSQL)
+        run: npm run test:integration
+
+  # master 로 오는 PR 은 head 가 dev 여야 한다 (릴리스 흐름 강제).
   source-branch:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.base_ref == 'master'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,8 +53,9 @@ jobs:
           fi
 
   build-master:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -33,7 +63,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # Dockerfile(node:22-slim)과 일치
           cache: npm
 
       - name: Install dependencies
