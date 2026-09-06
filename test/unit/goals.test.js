@@ -26,6 +26,31 @@ test("evaluateGoal: rating", () => {
   assert.equal(met.progress, 1);
 });
 
+test("evaluateGoal: rating — baseline 기준 상대 진행률", () => {
+  const spec = { kind: "rating", target: 13600, baseline: 13500 };
+  const start = g.evaluateGoal(spec, { profile: { rating: 13500, clearJson: "[]", server: "intl" } });
+  assert.equal(start.done, false);
+  assert.equal(start.progress, 0); // 목표 세운 시점 = 0%
+  assert.equal(start.currentValue, 13500);
+
+  const half = g.evaluateGoal(spec, { profile: { rating: 13550, clearJson: "[]", server: "intl" } });
+  assert.ok(Math.abs(half.progress - 0.5) < 1e-9);
+  assert.equal(g.progressPercent(half.progress, half.done), 50);
+
+  const near = g.evaluateGoal(spec, { profile: { rating: 13599, clearJson: "[]", server: "intl" } });
+  assert.equal(near.done, false);
+  assert.equal(g.progressPercent(near.progress, near.done), 99);
+
+  const met = g.evaluateGoal(spec, { profile: { rating: 13600, clearJson: "[]", server: "intl" } });
+  assert.equal(met.done, true);
+  assert.equal(met.progress, 1);
+});
+
+test("evaluateGoal: rating — baseline 없으면 절대값 기준 (구버전 호환)", () => {
+  const r = g.evaluateGoal({ kind: "rating", target: 13600 }, { profile: { rating: 13500, clearJson: "[]", server: "intl" } });
+  assert.ok(Math.abs(r.progress - 13500 / 13600) < 1e-9);
+});
+
 const clearJson = JSON.stringify([
   { title: "Oshama Scramble!", diff: "MASTER", musicKind: "DX", achievementVal: 100.7, fc: "AP", sync: "FS", level: "13" },
   { title: "Oshama Scramble!", diff: "MASTER", musicKind: "DX", achievementVal: 99.2, fc: "FC", sync: "", level: "13" },

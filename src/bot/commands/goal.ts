@@ -367,11 +367,18 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     return;
   }
 
+  const friendCode = await getUserFriendCode(interaction.user.id);
+  const profile = friendCode ? await getCachedProfile(friendCode) : null;
+
+  // 진행률 바를 "목표 세운 시점부터" 로 그리기 위해 현재값을 baseline 으로 캡처한다.
+  // 프로필이 아직 없으면 baseline 없이 저장되고 이후 절대값 기준으로 표시된다.
+  if (profile) {
+    built.spec.baseline = evaluateGoal(built.spec, { profile }).currentValue;
+  }
+
   const label = describeGoal(built.spec);
   const goalId = await addGoal(interaction.user.id, built.spec.kind, JSON.stringify(built.spec), label);
 
-  const friendCode = await getUserFriendCode(interaction.user.id);
-  const profile = friendCode ? await getCachedProfile(friendCode) : null;
   const embed = new EmbedBuilder()
     .setColor(ACCENT)
     .setTitle("🎯 목표 추가됨")

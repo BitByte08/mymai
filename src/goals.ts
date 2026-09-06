@@ -34,9 +34,13 @@ export type ChartCriterion =
   | { type: "combo"; value: ComboMark }
   | { type: "sync"; value: SyncMark };
 
+// baseline: 목표를 세운 시점의 현재값(각 유형의 native 스케일 — 레이팅 값 / 달성률 %
+// / 콤보·싱크 랭크 정수 / 집계 만족곡 수). 진행률 바를 "목표 세운 때부터 지금까지"
+// 로 그리기 위해 저장한다. 없으면(구버전 목표) 절대값 기준으로 계산한다.
 export interface RatingGoalSpec {
   kind: "rating";
   target: number;
+  baseline?: number;
 }
 export interface ChartGoalSpec {
   kind: "chart";
@@ -44,6 +48,7 @@ export interface ChartGoalSpec {
   diff: Difficulty;
   musicKind?: "ST" | "DX";
   criterion: ChartCriterion;
+  baseline?: number;
 }
 export interface AggregateGoalSpec {
   kind: "aggregate";
@@ -52,15 +57,17 @@ export interface AggregateGoalSpec {
   constantMin: number;
   constantMax: number;
   count: number | null; // null = 구간 전곡
+  baseline?: number;
 }
 export type GoalSpec = RatingGoalSpec | ChartGoalSpec | AggregateGoalSpec;
 
 export interface GoalEvaluation {
-  progress: number; // 0..1
+  progress: number; // 0..1 (baseline 이 있으면 목표 수립 시점 기준 상대 진행률)
   done: boolean;
   valueText: string;
   targetText: string;
   detail?: string;
+  currentValue: number; // 현재값(native 스케일) — 목표 수립 시 baseline 캡처용
 }
 
 // ─── 마크 랭크 (postgres.ts 와 동일 규칙, 이 모듈은 프레임워크 독립이라 재정의) ──
@@ -136,11 +143,27 @@ function bestOf(records: PlayRecord[]): { achievementVal: number; fc: string; sy
   return { achievementVal, fc, sync };
 }
 
-function criterionProgress(best: { achievementVal: number; fc: string; sync: string } | null, c: ChartCriterion): number {
+// 현재값(native 스케일)을 criterion 스케일에서 뽑는다. 기록이 없으면 0.
+function criterionCurrent(best: { achievementVal: number; fc: string; sync: string } | null, c: ChartCriterion): number {
   if (!best) return 0;
-  if (c.type === "achievement") return clamp01(best.achievementVal / c.value);
-  if (c.type === "combo") return clamp01(comboRank(best.fc) / comboRank(c.value));
-  return clamp01(syncRank(best.sync) / syncRank(c.value));
+  if (c.type === "achievement") return best.achievementVal;
+  if (c.type === "combo") return comboRank(best.fc);
+  return syncRank(best.sync);
+}
+
+// criterion 목표값(native 스케일).
+function criterionTarget(c: ChartCriterion): number {
+  if (c.type === "achievement") return c.value;
+  if (c.type === "combo") return comboRank(c.value);
+  return syncRank(c.value);
+}
+
+// 목표 수립 시점(baseline)부터 지금까지의 상대 진행률. baseline 이 없거나 이미
+// 목표 이상이었으면 절대값 기준(current/target)으로 되돌린다(구버전 목표 호환).
+function relProgress(current: number, target: number, baseline?: number): number {
+  const base = baseline ?? 0;
+  if (!(target > base)) return target > 0 ? clamp01(current / target) : 0;
+  return clamp01((current - base) / (target - base));
 }
 
 export function describeGoal(spec: GoalSpec): string {
@@ -163,11 +186,13 @@ export function evaluateGoal(spec: GoalSpec, ctx: EvaluationContext): GoalEvalua
 
   if (spec.kind === "rating") {
     const value = ctx.profile.rating || 0;
+    const done = value >= spec.target;
     return {
-      progress: clamp01(value / spec.target),
-      done: value >= spec.target,
+      progress: done ? 1 : relProgress(value, spec.target, spec.baseline),
+      done,
       valueText: String(value),
       targetText: String(spec.target),
+      currentValue: value,
     };
   }
 
@@ -189,14 +214,16 @@ export function evaluateGoal(spec: GoalSpec, ctx: EvaluationContext): GoalEvalua
             ? best.fc || "—"
             : best.sync || "—";
     }
+    const cur = criterionCurrent(best, spec.criterion);
     return {
-      progress: done ? 1 : criterionProgress(best, spec.criterion),
+      progress: done ? 1 : relProgress(cur, criterionTarget(spec.criterion), spec.baseline),
       done,
       valueText,
       targetText:
         spec.criterion.type === "achievement"
           ? spec.criterion.rank ?? `${spec.criterion.value}%`
           : spec.criterion.value,
+      currentValue: cur,
     };
   }
 
@@ -218,12 +245,14 @@ export function evaluateGoal(spec: GoalSpec, ctx: EvaluationContext): GoalEvalua
       bestOf(clearRecords.filter((r) => r.title === chart.title && r.diff === chart.diff));
     if (best && meetsCriterion(best, spec.criterion)) satisfied++;
   }
+  const done = target > 0 && satisfied >= target;
   return {
-    progress: target > 0 ? clamp01(satisfied / target) : 0,
-    done: target > 0 && satisfied >= target,
+    progress: done ? 1 : relProgress(satisfied, target, spec.baseline),
+    done,
     valueText: String(satisfied),
     targetText: `${target}곡`,
     detail: pool.length > 0 ? `구간 내 채보 ${pool.length}개` : "곡 상수 데이터 없음",
+    currentValue: satisfied,
   };
 }
 
