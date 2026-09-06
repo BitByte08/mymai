@@ -227,10 +227,20 @@ export function evaluateGoal(spec: GoalSpec, ctx: EvaluationContext): GoalEvalua
   };
 }
 
-// 진행률 바 (임베드 표시용)
+// 진행률 바 (임베드 표시용). 아직 달성하지 않았으면(progress < 1) 절대로 꽉 찬 바를
+// 보여주지 않는다 — 99.9% 를 반올림해 100% 처럼 보이던 버그 방지.
 export function progressBar(progress: number, width = 12): string {
-  const filled = Math.round(clamp01(progress) * width);
+  const p = clamp01(progress);
+  let filled = Math.round(p * width);
+  if (p < 1 && filled >= width) filled = width - 1;
   return "█".repeat(filled) + "░".repeat(width - filled);
+}
+
+// 표시용 진행률 퍼센트(정수). 달성 시에만 100 을 반환하고, 미달성이면 99 로 상한을
+// 두어 내림 처리한다 (13500/13600, 96.9999/97 이 100% 로 뜨던 버그 방지).
+export function progressPercent(progress: number, done: boolean): number {
+  if (done) return 100;
+  return Math.min(99, Math.max(0, Math.floor(clamp01(progress) * 100)));
 }
 
 export function displayLevelOf(constant: number): string {

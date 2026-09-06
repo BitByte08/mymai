@@ -88,3 +88,20 @@ test("progressBar", () => {
   assert.equal(g.progressBar(1, 4), "████");
   assert.equal(g.progressBar(2, 4), "████"); // clamped
 });
+
+test("progressBar: near-100 미달성은 꽉 찬 바를 보이지 않는다", () => {
+  // 13500/13600 ≈ 0.99264 → 예전엔 Math.round 로 꽉 찬 바가 나왔다
+  assert.equal(g.progressBar(13500 / 13600, 12), "███████████░");
+  assert.equal(g.progressBar(96.9999 / 97, 12), "███████████░");
+});
+
+test("progressPercent: 미달성이면 100% 로 반올림하지 않는다", () => {
+  assert.equal(g.progressPercent(13500 / 13600, false), 99);
+  assert.equal(g.progressPercent(96.9999 / 97, false), 99);
+  assert.equal(g.progressPercent(0.994, false), 99);
+  assert.equal(g.progressPercent(0.5, false), 50);
+  assert.equal(g.progressPercent(0, false), 0);
+  assert.equal(g.progressPercent(1, true), 100);
+  assert.equal(g.progressPercent(0.3, true), 100); // done 이면 항상 100
+  assert.equal(g.progressPercent(2, false), 99); // clamp
+});

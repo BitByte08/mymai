@@ -22,6 +22,7 @@ import {
   evaluateGoal,
   describeGoal,
   progressBar,
+  progressPercent,
   parseLevelRange,
   DIFFICULTIES,
   type GoalSpec,
@@ -221,10 +222,11 @@ async function goalsEmbed(
 
   const totalPages = Math.max(1, Math.ceil(goals.length / PAGE_SIZE));
   const idx = Math.max(0, Math.min(page, totalPages - 1));
-  const pageGoals = goals.slice(idx * PAGE_SIZE, (idx + 1) * PAGE_SIZE);
 
-  const lines = pageGoals.map((goal, i) => {
-    const number = idx * PAGE_SIZE + i + 1;
+  // 모든 목표를 라이브 평가한다. 완료 개수(footer)와 줄별 체크 표시가 항상 같은
+  // 판정을 쓰도록 — 예전엔 줄은 라이브 평가, footer 는 저장된 completedAt 만 봐서
+  // 달성했는데도 "0/N 완료" 로 뜨는 불일치가 있었다.
+  const evaluated = goals.map((goal) => {
     let label = goal.label;
     let progress = goal.progress;
     let valueText = "";
@@ -243,14 +245,19 @@ async function goalsEmbed(
     } catch {
       /* label/progress fall back to stored values */
     }
-    const bar = progressBar(done ? 1 : progress);
-    const pct = `${Math.round((done ? 1 : progress) * 100)}%`;
-    const status = done ? "✅" : "⏳";
-    const detail = valueText ? ` · ${valueText}${targetText ? ` / ${targetText}` : ""}` : "";
-    return `\`${String(number).padStart(2, " ")}.\` ${status} **${label}**\n\`${bar}\` ${pct}${detail}`;
+    return { label, progress, valueText, targetText, done };
   });
 
-  const doneCount = goals.filter((g) => g.completedAt > 0).length;
+  const lines = evaluated.slice(idx * PAGE_SIZE, (idx + 1) * PAGE_SIZE).map((e, i) => {
+    const number = idx * PAGE_SIZE + i + 1;
+    const bar = progressBar(e.done ? 1 : e.progress);
+    const pct = `${progressPercent(e.progress, e.done)}%`;
+    const status = e.done ? "✅" : "⏳";
+    const detail = e.valueText ? ` · ${e.valueText}${e.targetText ? ` / ${e.targetText}` : ""}` : "";
+    return `\`${String(number).padStart(2, " ")}.\` ${status} **${e.label}**\n\`${bar}\` ${pct}${detail}`;
+  });
+
+  const doneCount = evaluated.filter((e) => e.done).length;
   const embed = new EmbedBuilder()
     .setColor(ACCENT)
     .setTitle(`🎯 ${displayName} 님의 목표`)
@@ -375,7 +382,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const bar = progressBar(evaluation.done ? 1 : evaluation.progress);
     embed.addFields({
       name: "현재 진행도",
-      value: `\`${bar}\` ${Math.round((evaluation.done ? 1 : evaluation.progress) * 100)}% · ${evaluation.valueText}${evaluation.targetText ? ` / ${evaluation.targetText}` : ""}${evaluation.done ? "  ✅ 이미 달성!" : ""}`,
+      value: `\`${bar}\` ${progressPercent(evaluation.progress, evaluation.done)}% · ${evaluation.valueText}${evaluation.targetText ? ` / ${evaluation.targetText}` : ""}${evaluation.done ? "  ✅ 이미 달성!" : ""}`,
     });
   } else {
     embed.addFields({
