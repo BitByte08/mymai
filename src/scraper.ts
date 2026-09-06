@@ -205,8 +205,12 @@ export function parsePlaylogDetail(html: string): { ratingUp?: number } {
   const $ = cheerio.load(html);
   const text = $(".playlog_rating_detail_block").text().replace(/\s+/g, " ");
   const match = text.match(/\(\+(\d+)\)/);
+  const value = match ? Number(match[1]) : undefined;
+  // 단일 플레이로 총 레이팅이 오를 수 있는 최대치는 이론상 단일 채보 최대 곡
+  // 레이팅(약 338)이다. 宴/코스 등 다른 모드의 상세 페이지에서 (+N) 이 레이팅
+  // 증가분이 아닌 값(콤보·DX스코어 등)으로 잘못 잡히는 경우가 있어 상한을 둔다.
   return {
-    ratingUp: match ? Number(match[1]) : undefined,
+    ratingUp: value != null && Number.isFinite(value) && value <= 400 ? value : undefined,
   };
 }
 
