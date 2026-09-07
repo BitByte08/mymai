@@ -162,6 +162,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       .addFields(
         { name: "채보", value: `\`${c.diff}\`  ·  상수 \`${c.level.toFixed(1)}\``, inline: true },
       );
+    // 장르(OTOGE DB catcode)는 있을 때만 표시.
+    const genre = getSongGenre(c.title);
+    if (genre) emb.addFields({ name: msg("random.fieldGenre"), value: genre, inline: true });
     if (rec && rec.achievementVal > 0) {
       const ach = rec.achievementVal.toFixed(4) + "%";
       emb.addFields({ name: "내 기록", value: `${ach}${rec.fc ? "  ·  " + rec.fc : ""}`, inline: true });

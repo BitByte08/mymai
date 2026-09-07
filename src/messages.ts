@@ -122,6 +122,7 @@ export const MESSAGES = {
   "searchResult.author": "\"{query}\"{type} 에 대한 검색 결과",
   "searchResult.regionExclusive": "{version} 전용",
   "searchResult.externalLink": "[▶ 외부출력]({url})",
+  "searchResult.genreSuffix": "  ·  {genre}",
 
   // ── 레이팅 대상곡 ───────────────────────────────────────────────────────
   "ratingTarget.empty": "레이팅 기록 없음\n북마클릿을 다시 실행하면 업데이트됩니다.",
@@ -158,6 +159,7 @@ export const MESSAGES = {
   "random.needProfileForPlayFilter": "플레이여부 필터는 프로필이 필요합니다. `/북마클릿`으로 먼저 등록해주세요.",
   "random.noMatch": "조건에 맞는 곡이 없습니다.",
   "random.label": "랜덤",
+  "random.fieldGenre": "장르",
 
   // ── /곡추천 ─────────────────────────────────────────────────────────────
   "songrec.noRecords": "기록이 없습니다. `/북마클릿`으로 먼저 동기화해주세요.",

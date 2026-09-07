@@ -21,6 +21,7 @@ import {
   calcSongRating,
   isNewSong,
   getRegionExclusive,
+  getSongGenre,
 } from "../../constants";
 import { aliasMatches, normalizeQuery, displayTitle } from "../../aliases";
 import { ratingColor } from "./roles";
@@ -539,8 +540,12 @@ export async function searchResultEmbeds(
       // 현재 검색 대상 서버 라벨 (기본 서버 프로필만 출력하므로 그 서버를 표기).
       // 제목이 아닌 점수표 위 한 줄에 두고, 한 서버 전용 곡이면 "전용"으로 구분.
       const verLabel = p.server === "jp" ? "japan ver." : "intl ver.";
+      // 장르(OTOGE DB catcode)는 있을 때만 버전 라벨 뒤에 덧붙인다.
+      const genre = getSongGenre(title);
       const regionLine =
-        (getRegionExclusive(title) ? msg("searchResult.regionExclusive", { version: verLabel }) : verLabel) + "\n";
+        (getRegionExclusive(title) ? msg("searchResult.regionExclusive", { version: verLabel }) : verLabel)
+        + (genre ? msg("searchResult.genreSuffix", { genre }) : "")
+        + "\n";
       const emb = new EmbedBuilder()
         .setColor(0x2b2d31)
         .setTitle(displayTitle(title, translate) + kind)
