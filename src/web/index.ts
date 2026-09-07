@@ -414,9 +414,12 @@ a{color:#c084fc}
         await loadAliases();
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, alias: created }));
-      } catch {
-        res.writeHead(400, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: false, error: "invalid_body" }));
+      } catch (e) {
+        // 예전에는 DB 오류까지 invalid_body로 뭉개져 원인을 알 수 없었다.
+        console.error("[admin] 별명 추가 실패:", e);
+        const badBody = e instanceof SyntaxError;
+        res.writeHead(badBody ? 400 : 500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: badBody ? "invalid_body" : "서버 오류가 발생했습니다" }));
       }
       return;
     }
@@ -436,9 +439,11 @@ a{color:#c084fc}
         if (removed) await loadAliases();
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: removed }));
-      } catch {
-        res.writeHead(400, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: false, error: "invalid_body" }));
+      } catch (e) {
+        console.error("[admin] 별명 요청 실패:", e);
+        const badBody = e instanceof SyntaxError;
+        res.writeHead(badBody ? 400 : 500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: badBody ? "invalid_body" : "서버 오류가 발생했습니다" }));
       }
       return;
     }
@@ -465,9 +470,11 @@ a{color:#c084fc}
         await loadAliases();
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, title, on }));
-      } catch {
-        res.writeHead(400, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ok: false, error: "invalid_body" }));
+      } catch (e) {
+        console.error("[admin] 별명 요청 실패:", e);
+        const badBody = e instanceof SyntaxError;
+        res.writeHead(badBody ? 400 : 500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: badBody ? "invalid_body" : "서버 오류가 발생했습니다" }));
       }
       return;
     }

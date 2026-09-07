@@ -344,10 +344,20 @@ export interface AliasSongInfo {
   region: "jp" | "intl" | null;
 }
 
+// 연회장(宴) 채보 장르. 레이팅 대상이 아니고 별명/목표 대상도 아니라 곡 목록에서 제외한다.
+// 제목이 "[협]", "[宴]" 처럼 대괄호로 시작하지만, 대괄호로 시작하는 일반 곡(예: "[X]")도
+// 있어서 제목 패턴이 아니라 장르(catcode)로 판정해야 한다.
+const UTAGE_GENRE = "宴会場";
+
+export function isUtageSong(title: string): boolean {
+  return genreMap.get(title) === UTAGE_GENRE;
+}
+
 // 별명 관리 페이지용 전체 곡 목록. intl/jp 수록곡 합집합을 title 기준으로 반환.
 export function getAllSongTitles(): AliasSongInfo[] {
   const titles = new Set<string>([...intlTitles, ...jpTitles, ...versionMap.keys()]);
   return Array.from(titles)
+    .filter((title) => !isUtageSong(title))
     .map((title) => {
       const version = versionMap.get(title) ?? 0;
       return {
