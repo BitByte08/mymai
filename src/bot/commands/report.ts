@@ -26,6 +26,7 @@ import {
   type Draft,
   type ReportContext,
 } from "../issueApi";
+import { msg } from "../../messages";
 
 export const data = new SlashCommandBuilder()
   .setName("문의")
@@ -79,10 +80,10 @@ function resolveGuildId(
 function buildModal(customId: string, prefill?: string): ModalBuilder {
   return new ModalBuilder()
     .setCustomId(customId)
-    .setTitle("문의 작성")
+    .setTitle(msg("report.modalTitle"))
     .addLabelComponents(
       (label) =>
-        label.setLabel("제보 내용").setTextInputComponent((ti) => {
+        label.setLabel(msg("report.contentLabel")).setTextInputComponent((ti) => {
           ti.setCustomId("content")
             .setStyle(TextInputStyle.Paragraph)
             .setRequired(true)
@@ -93,7 +94,7 @@ function buildModal(customId: string, prefill?: string): ModalBuilder {
         }),
       (label) =>
         label
-          .setLabel("사진·영상 첨부 (선택)")
+          .setLabel(msg("report.attachmentLabel"))
           .setFileUploadComponent((fu) =>
             fu.setCustomId("media").setMinValues(0).setMaxValues(10).setRequired(false),
           ),
@@ -115,26 +116,26 @@ function buildPreview(token: string, draft: Draft): {
   components: ActionRowBuilder<ButtonBuilder>[];
 } {
   const embed = new EmbedBuilder()
-    .setTitle(draft.title || "(제목 없음)")
+    .setTitle(draft.title || msg("report.noTitle"))
     .setColor(draft.needsMoreInfo ? 0xf59e0b : 0x9333ea)
-    .setDescription(draft.summary || "(요약 없음)")
+    .setDescription(draft.summary || msg("report.noSummary"))
     .addFields(
       { name: "유형", value: draft.type || "-", inline: true },
       { name: "우선순위", value: draft.priority || "-", inline: true },
       { name: "라벨", value: draft.labels.length ? draft.labels.join(", ") : "-", inline: true },
     )
-    .setFooter({ text: "아래에서 생성하면 team-carol/carol 저장소에 이슈가 등록됩니다." });
+    .setFooter({ text: msg("report.previewFooter") });
 
   if (draft.needsMoreInfo) {
     embed.addFields({
       name: "⚠️ 정보 부족",
-      value: "제보 내용이 짧아 근거 없는 세부는 생성하지 않았습니다. 취소 후 재현 방법·기대 동작을 더 자세히 적어주시면 더 정확한 이슈가 만들어집니다.",
+      value: msg("report.tooShortNotice"),
     });
   }
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder().setCustomId(`report:create:${token}`).setLabel("이슈 생성").setStyle(ButtonStyle.Success).setEmoji("✅"),
-    new ButtonBuilder().setCustomId(`report:cancel:${token}`).setLabel("취소").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`report:create:${token}`).setLabel(msg("report.createButton")).setStyle(ButtonStyle.Success).setEmoji("✅"),
+    new ButtonBuilder().setCustomId(`report:cancel:${token}`).setLabel(msg("report.cancelButton")).setStyle(ButtonStyle.Secondary),
   );
 
   return { embeds: [embed], components: [row] };
@@ -159,7 +160,7 @@ async function startReport(interaction: ModalSubmitInteraction, ctx: ReportConte
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!isConfigured()) {
-    await interaction.reply({ content: "제보 기능이 설정되지 않았습니다. 관리자에게 문의해주세요.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("report.notConfigured"), flags: MessageFlags.Ephemeral });
     return;
   }
   await interaction.showModal(buildModal("report:modal:new"));
@@ -167,25 +168,25 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
 export async function executeMessage(interaction: MessageContextMenuCommandInteraction): Promise<void> {
   if (!isConfigured()) {
-    await interaction.reply({ content: "제보 기능이 설정되지 않았습니다. 관리자에게 문의해주세요.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("report.notConfigured"), flags: MessageFlags.Ephemeral });
     return;
   }
   const channelId = interaction.channelId;
   if (!channelId) {
-    await interaction.reply({ content: "채널 정보를 확인할 수 없습니다. 서버 채널에서 다시 시도해주세요.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("report.noChannel"), flags: MessageFlags.Ephemeral });
     return;
   }
   const gid = resolveGuildId(interaction, channelId);
-  const msg = interaction.targetMessage;
+  const targetMsg = interaction.targetMessage;
   const token = randomUUID();
   pendingContexts.set(token, {
-    messageUrl: `https://discord.com/channels/${gid}/${channelId}/${msg.id}`,
+    messageUrl: `https://discord.com/channels/${gid}/${channelId}/${targetMsg.id}`,
     guildId: gid,
     channelId,
-    attachments: [...msg.attachments.values()].map((a) => a.url),
+    attachments: [...targetMsg.attachments.values()].map((a) => a.url),
     expiresAt: Date.now() + PENDING_TTL_MS,
   });
-  await interaction.showModal(buildModal(`report:modal:${token}`, msg.content ?? ""));
+  await interaction.showModal(buildModal(`report:modal:${token}`, targetMsg.content ?? ""));
 }
 
 export async function handleModal(interaction: ModalSubmitInteraction): Promise<void> {
@@ -194,7 +195,7 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
   try {
     const channelId = interaction.channelId;
     if (!channelId) {
-      await interaction.editReply({ content: "채널 정보를 확인할 수 없습니다. 서버 채널에서 다시 시도해주세요." });
+      await interaction.editReply({ content: msg("report.noChannel") });
       return;
     }
     const content = interaction.fields.getTextInputValue("content");
@@ -217,7 +218,7 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
     } else {
       const pc = pendingContexts.get(token);
       if (!pc) {
-        await interaction.editReply({ content: "요청이 만료되었습니다. 다시 시도해주세요." });
+        await interaction.editReply({ content: msg("report.expired") });
         return;
       }
       pendingContexts.delete(token);
@@ -236,7 +237,7 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
   } catch (e) {
     console.error("[report:modal]", e);
     try {
-      await interaction.editReply({ content: "오류가 발생했습니다. 잠시 후 다시 시도해주세요." });
+      await interaction.editReply({ content: msg("report.failed") });
     } catch {
       /* editReply 자체 실패 시 로깅으로 종료 */
     }
@@ -248,7 +249,7 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
   const pending = token ? pendingReports.get(token) : undefined;
 
   if (!pending) {
-    await interaction.update({ content: "요청이 만료되었습니다. `/문의` 로 다시 시도해주세요.", embeds: [], components: [] });
+    await interaction.update({ content: msg("report.expiredRetry"), embeds: [], components: [] });
     return;
   }
   if (pending.reporterId !== interaction.user.id) {

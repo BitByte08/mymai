@@ -3,6 +3,7 @@ import {
   PermissionsBitField, GuildMember,
 } from "discord.js";
 import { getCachedProfile, loadUserSession, getGuildSetting } from "../../storage";
+import { msg } from "../../messages";
 
 export const RATING_ROLES: [number, string, number][] = [
   [16750, "무지개(극) IV",  0xab30ff],
@@ -39,32 +40,32 @@ export function ratingColor(r: number): number {
 
 export async function handleRole(interaction: ChatInputCommandInteraction, userId: string): Promise<void> {
   if (!interaction.guild) {
-    await interaction.reply({ content: "서버에서만 사용 가능합니다.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("common.guildOnly"), flags: MessageFlags.Ephemeral });
     return;
   }
   const botMember = interaction.guild.members.me;
   if (!botMember?.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-    await interaction.reply({ content: "봇에 '역할 관리' 권한이 필요합니다.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("role.needManageRoles"), flags: MessageFlags.Ephemeral });
     return;
   }
   const stored = await loadUserSession(userId);
   if (!stored?.friendCode) {
-    await interaction.reply({ content: "먼저 `/북마클릿`으로 프로필을 등록해주세요.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("role.needBookmarklet"), flags: MessageFlags.Ephemeral });
     return;
   }
   const cached = await getCachedProfile(stored.friendCode);
   if (!cached) {
-    await interaction.reply({ content: "프로필 데이터가 없습니다. `/북마클릿`으로 동기화해주세요.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("role.noProfileData"), flags: MessageFlags.Ephemeral });
     return;
   }
   const roleInfo = ratingRoleName(cached.rating);
   if (!roleInfo) {
-    await interaction.reply({ content: "레이팅이 2000 미만이라 역할이 부여되지 않습니다.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("role.ratingTooLow"), flags: MessageFlags.Ephemeral });
     return;
   }
   const member = interaction.member as GuildMember;
   if (!member) {
-    await interaction.reply({ content: "멤버 정보를 불러올 수 없습니다.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("role.memberUnavailable"), flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -83,7 +84,7 @@ export async function handleRole(interaction: ChatInputCommandInteraction, userI
 
     if (targetRole.position >= botMember.roles.highest.position) {
       await interaction.reply({
-        content: `"${roleInfo.name}" 역할이 봇보다 높거나 같아서 부여할 수 없습니다. 관리자가 역할 순서를 조정해주세요.`,
+        content: msg("role.rolePositionTooHigh", { role: roleInfo.name }),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -96,13 +97,13 @@ export async function handleRole(interaction: ChatInputCommandInteraction, userI
     await interaction.reply({
       embeds: [new EmbedBuilder()
         .setColor(roleInfo.color)
-        .setDescription(`레이팅 **${cached.rating}** → **${roleInfo.name}** 역할 부여 완료!`)],
+        .setDescription(msg("role.granted", { rating: cached.rating, role: roleInfo.name }))],
       flags: MessageFlags.Ephemeral,
     });
   } catch (e: any) {
     console.error("[role]", e);
     await interaction.reply({
-      content: `역할 부여 실패: ${e.message ?? "알 수 없는 오류"}`,
+      content: msg("role.failed", { reason: e.message ?? msg("role.unknownError") }),
       flags: MessageFlags.Ephemeral,
     });
   }

@@ -2,6 +2,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder, Message
 import { getDailyFortuneSong, getJacketFile } from "../../constants";
 import { getTranslateTitles } from "../../storage";
 import { displayTitle } from "../../aliases";
+import { msg } from "../../messages";
 
 function formatSeoulDate(date: Date): string {
   return new Intl.DateTimeFormat("ko-KR", {
@@ -29,7 +30,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const fortune = getDailyFortuneSong(interaction.user.id);
   if (!fortune) {
     await interaction.reply({
-      content: "오늘의 운세를 만들 곡을 찾지 못했습니다. 곡 데이터를 다시 불러와 주세요.",
+      content: msg("fortune.noSongs"),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -39,14 +40,14 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const style = constantStyle(chart.level);
   const dateText = formatSeoulDate(new Date());
   const emb = new EmbedBuilder()
-    .setTitle("오늘의 운세")
+    .setTitle(msg("fortune.title"))
     .setColor(style.color)
-    .setDescription(`오늘의 곡은 **${displayTitle(fortune.title, await getTranslateTitles(interaction.user.id))}** 입니다.`)
+    .setDescription(msg("fortune.body", { title: displayTitle(fortune.title, await getTranslateTitles(interaction.user.id)) }))
     .addFields(
-      { name: "선정 차트", value: `\`${chart.kind} ${chart.diff}\``, inline: true },
-      { name: "상수", value: `\`${chart.level.toFixed(1)}\``, inline: true },
+      { name: msg("fortune.chartField"), value: `\`${chart.kind} ${chart.diff}\``, inline: true },
+      { name: msg("fortune.constantField"), value: `\`${chart.level.toFixed(1)}\``, inline: true },
     )
-    .setFooter({ text: `기준일: ${dateText}` });
+    .setFooter({ text: msg("fortune.footer", { date: dateText }) });
 
   const jacketFile = getJacketFile(fortune.title);
   if (jacketFile) {

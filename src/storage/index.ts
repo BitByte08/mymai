@@ -40,7 +40,7 @@ export const getTranslateTitles = method("getTranslateTitles"); export const set
 export const getEnabledBookmarkletPresetIds = method("getEnabledBookmarkletPresetIds"); export const setBookmarkletPresetEnabled = method("setBookmarkletPresetEnabled"); export const getExtraBookmarklets = method("getExtraBookmarklets"); export const addExtraBookmarklet = method("addExtraBookmarklet"); export const removeExtraBookmarklet = method("removeExtraBookmarklet");
 export const getConstantsCache = method("getConstantsCache"); export const saveConstantsCache = method("saveConstantsCache");
 export const getRatingCardCache = method("getRatingCardCache"); export const saveRatingCardCache = method("saveRatingCardCache");
-export const getAllAliases = method("getAllAliases"); export const getTranslationAliases = method("getTranslationAliases"); export const addAlias = method("addAlias"); export const deleteAlias = method("deleteAlias"); export const setAliasTranslation = method("setAliasTranslation");
+export const getAllAliases = method("getAllAliases"); export const getTranslationAliases = method("getTranslationAliases"); export const addAlias = method("addAlias"); export const deleteAlias = method("deleteAlias"); export const setAliasTranslation = method("setAliasTranslation"); export const getMessageOverrides = method("getMessageOverrides"); export const setMessageOverride = method("setMessageOverride"); export const deleteMessageOverride = method("deleteMessageOverride");
 export const getRegisteredUserCount = method("getRegisteredUserCount"); export const getLastSyncTime = method("getLastSyncTime"); export const getInactiveProfileFriendCodes = method("getInactiveProfileFriendCodes"); export const clearRatingCardCacheForInactive = method("clearRatingCardCacheForInactive");
 
 export async function closeStorage(): Promise<void> {
@@ -50,4 +50,4 @@ export async function closeStorage(): Promise<void> {
   adapter = undefined;
 }
 
-export type { CachedProfile, ExtraBookmarklet, MaimaiServer, SongAliasRow, AchievementPlayEventInput, AchievementPlayEventLogInput, AchievementPlayEventLogRecord, DailyAchievementSummary, ChartClearInput, ChartClearDiff, GoalRow, GoalProgressUpdate } from "./types";
+export type { CachedProfile, ExtraBookmarklet, MaimaiServer, SongAliasRow, BotMessageRow, AchievementPlayEventInput, AchievementPlayEventLogInput, AchievementPlayEventLogRecord, DailyAchievementSummary, ChartClearInput, ChartClearDiff, GoalRow, GoalProgressUpdate } from "./types";

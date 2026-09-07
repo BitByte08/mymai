@@ -2,6 +2,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags } from "
 import { getCachedProfile, getUserFriendCode, getProfilePrivate } from "../../storage";
 import { buildProfileReply } from "../utils/embeds";
 import { autoRole } from "../utils/roles";
+import { msg } from "../../messages";
 
 export const data = new SlashCommandBuilder()
   .setName("프로필")
@@ -14,12 +15,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const target = interaction.options.getUser("user") ?? interaction.user;
   const userId = target.id;
   if (target.id !== interaction.user.id && await getProfilePrivate(target.id)) {
-    await interaction.reply({ content: `<@${target.id}> 님은 프로필을 비공개로 설정했습니다.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("common.profilePrivate", { user: `<@${target.id}>` }), flags: MessageFlags.Ephemeral });
     return;
   }
   const notRegistered = target.id === interaction.user.id
-    ? "아직 프로필이 등록되지 않았습니다. `/북마클릿` 명령어로 먼저 등록해주세요."
-    : `<@${target.id}> 님은 아직 프로필을 등록하지 않았습니다.`;
+    ? msg("common.selfNotRegistered")
+    : msg("common.otherNotRegistered", { user: `<@${target.id}>` });
   const friendCode = await getUserFriendCode(userId);
   if (!friendCode) {
     await interaction.reply({ content: notRegistered, flags: MessageFlags.Ephemeral });

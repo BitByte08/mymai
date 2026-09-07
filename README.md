@@ -32,6 +32,7 @@
 - **일일 성과 (`/성과`)** — 한국시간 오전 4시를 하루 기준으로, 그날 실제로 오른 채보만 모아 카드 이미지로 표시. 달성률·FC·SYNC 등급이 실제로 개선된 경우만 집계하며(참여만 해도 붙는 기본 SYNC 등급은 제외), 5개 단위로 이미지를 나눠 첨부해 SNS 공유가 쉽습니다. 사용자마다 "최소 인정 달성률" 임계값을 웹 설정에서 조정 가능
 - **곡 검색** — 클리어 기록에서 곡명(별명 포함) 부분 일치 검색, ST/DX 타입 필터
 - **곡 별명 관리** — 검색/표시용 별명, 그중 하나를 곡의 한국어 번역으로 지정 가능 (설정에서 "곡 제목 한국어 번역" 토글)
+- **봇 문구 관리** — 봇이 출력하는 문구를 관리 페이지에서 수정. 기본값은 `src/messages.ts`, 수정분은 `bot_messages` 테이블에 저장되며 저장 즉시 반영. 자리표시자·길이를 검증하고 기본값 복원 가능
 - **랜덤 추천 (`/랜덤`) · 곡 추천 (`/곡추천`)** — 상수 범위/난이도/장르/버전/플레이 여부 등 조건에 맞는 채보를 무작위 추천하거나, 레이팅 대상곡 기반으로 점수를 올리기 좋은 채보를 추천
 - **오늘의 운세 (`/운세`)** — 하루에 한 곡씩 추천
 - **지방(맵) 진행도 (`/지방`)** — maimai DX 지방 이벤트 진행 상황을 페이지/공유 가능한 카드로 표시
@@ -127,7 +128,7 @@ PostgreSQL 컨테이너, 봇 컨테이너(Node 22 빌드)를 함께 띄우고 �
   "encryptionKey": "",            // 빈 값이면 최초 실행 시 자동 생성 후 이 파일에 다시 기록됨
   "baseUrl": "",                  // 프로덕션에서만 입력 (비우면 로컬 개발 모드로 동작)
   "discordInviteUrl": "",         // 선택: /invite 리다이렉트 대상 URL
-  "aliasAdminGuildId": "",        // 선택: /별명 곡 별명 관리를 허용할 guildId
+  "aliasAdminGuildId": "",        // 선택: /관리 (별명·문구 관리)를 허용할 guildId
   "carolIssueBaseUrl": "",        // 선택: carol-issue 제보 연동 주소
   "carolSharedSecret": "",        // 선택: carol-issue와 동일한 공유 secret (hex)
   "carolIssueGuildId": ""         // 선택: DM 제보 시 대표 guildId (없으면 DM 채널 ID로 폴백)
@@ -137,7 +138,7 @@ PostgreSQL 컨테이너, 봇 컨테이너(Node 22 빌드)를 함께 띄우고 �
 - **`encryptionKey`**: 최초 실행 시 비어 있으면 32자 랜덤 키를 생성해 이 파일에 **직접 다시 기록**합니다. 첫 실행 이후에는 `config.json`을 덮어쓰지 말고, 값이 생성된 뒤에는 그대로 보관하세요(바뀌면 저장된 세션 쿠키를 복호화할 수 없게 됩니다).
 - **`baseUrl`**: 비워두면 `http://localhost:{webPort}`를 로컬 개발 URL로 사용하고 `/sync`, `/settings`를 토큰 없이도 미리보기할 수 있습니다. Cloudflare Tunnel 등으로 배포한 뒤에는 반드시 공개 HTTPS URL을 입력해야 북마클릿이 올바른 주소로 동작합니다.
 - **`discordInviteUrl`**: 비워두면 `/invite`가 `clientId` 기준으로 기본 초대 링크(`permissions=2415938560`, `integration_type=0`, `scope=applications.commands bot`)를 생성합니다. 권한을 직접 조정한 OAuth2 URL이 있다면 여기에 넣으세요.
-- **`aliasAdminGuildId`**: `/별명` 명령으로 곡 별명 관리 웹페이지를 열 수 있는 서버(guild) ID. 비워두면 어디서도 `/별명`이 비활성화됩니다. 별명 데이터는 PostgreSQL `song_aliases` 테이블에 저장되며 최초 실행 시 번들 시드(`src/data/aliasSeed.ts`)로 자동 채워집니다.
+- **`aliasAdminGuildId`**: `/관리` 명령으로 관리 웹페이지(곡 별명·봇 문구)를 열 수 있는 서버(guild) ID. 비워두면 어디서도 `/관리`가 비활성화됩니다. 별명 데이터는 PostgreSQL `song_aliases` 테이블에 저장되며 최초 실행 시 번들 시드(`src/data/aliasSeed.ts`)로 자동 채워집니다.
 - **`carolIssueBaseUrl` / `carolSharedSecret`**: [carol-issue](https://github.com/team-carol) 제보 연동. 둘 다 채워야 `/문의`·"이슈로 등록"이 활성화됩니다. secret은 carol-issue의 `CAROL_SHARED_SECRET`과 동일해야 합니다.
 - **`carolIssueGuildId`**: DM에서 제보할 때 payload에 넣을 `guildId` 폴백값.
 
@@ -164,8 +165,11 @@ PostgreSQL 컨테이너, 봇 컨테이너(Node 22 빌드)를 함께 띄우고 �
 | `GET /settings?code=...` | 개인정보 공개 여부, 기본 서버(INTL/JP), 곡 제목 한국어 번역, 성과 최소 달성률, 프리셋/추가 북마클릿 관리 |
 | `GET /api/settings` · `POST /api/settings/*` | 위 설정 페이지가 사용하는 JSON API |
 | `GET /avatar` · `GET /jacket` | 캐시된 아바타/곡 자켓 PNG |
-| `GET /admin/aliases?code=...` | 곡 별명 관리 (관리자, `/별명`으로 발급한 토큰 필요) |
+| `GET /admin?code=...` | 관리 페이지 진입점 (`/관리`로 발급한 토큰 필요) |
+| `GET /admin/aliases?code=...` | 곡 별명 관리 탭 |
+| `GET /admin/messages?code=...` | 봇 문구 관리 탭 |
 | `POST /api/admin/aliases`, `/delete`, `/translation` | 별명 관리 API |
+| `POST /api/admin/messages`, `/reset` | 문구 저장·기본값 복원 API |
 | `GET /privacy` · `GET /terms` | 개인정보처리방침 · 이용약관 정적 페이지 |
 
 ## 명령어
@@ -185,7 +189,7 @@ PostgreSQL 컨테이너, 봇 컨테이너(Node 22 빌드)를 함께 띄우고 �
 | `/지방` | maimai DX 지방 진행도 카드 표시 |
 | `/설정` | 웹 설정 페이지 링크 안내 |
 | `/서버설정` | 서버 자동 역할 설정 관리 (관리자 전용) |
-| `/별명` | 곡 별명 관리 웹페이지 열기 (`aliasAdminGuildId` 서버 전용) |
+| `/관리` | 관리 웹페이지 열기 — 곡 별명·봇 문구 탭 (`aliasAdminGuildId` 서버 전용) |
 | `/상태` | 봇/서버 상태, 배포 버전 확인 |
 | `/문의` | 모달에 작성한 내용을 GitHub 이슈로 등록 (미리보기 후 생성) |
 
