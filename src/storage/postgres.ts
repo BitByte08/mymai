@@ -7,7 +7,7 @@ import { calcSongRating, getConstant, levelToNumber } from "../constants";
 
 pgTypes.setTypeParser(20, (value) => Number(value));
 
-export const MIGRATION_VERSION = 12;
+export const MIGRATION_VERSION = 13;
 
 // Migration text is deliberately kept as separate, immutable units.  In particular,
 // an edit to the current schema must not silently change an old migration checksum.
@@ -58,6 +58,9 @@ CREATE INDEX IF NOT EXISTS idx_user_goals_owner ON user_goals(discord_user_id, c
   // song_aliases_pkey 중복으로 실패한다(ON CONFLICT(title,alias)로는 안 잡힘).
   // 시퀀스를 현재 최대 id 다음으로 맞춘다.
   [12, `SELECT setval(pg_get_serial_sequence('song_aliases','id'), COALESCE((SELECT MAX(id) FROM song_aliases), 0) + 1, false);`,],
+  // bot_messages: 봇 출력 문구의 오버라이드. key는 src/messages.ts의 카탈로그 키이고
+  // 행이 없으면 코드의 기본값이 쓰인다(삭제 = 기본값 복원).
+  [13, `CREATE TABLE IF NOT EXISTS bot_messages (key text PRIMARY KEY, text text NOT NULL, updated_at bigint NOT NULL DEFAULT 0);`,],
 ];
 
 function hash(text: string): string { return crypto.createHash("sha256").update(text).digest("hex"); }
@@ -177,6 +180,9 @@ SELECT u.chart_key AS "chartKey",u.achievement_val AS "achievementVal",u.fc,u.sy
   async getConstantsCache(){const r=await this.q<any>("SELECT data,updated_at AS \"updatedAt\" FROM constants_cache WHERE key='main'");return r[0]??null;} async saveConstantsCache(d:string){await this.q("INSERT INTO constants_cache VALUES('main',$1,$2) ON CONFLICT(key) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at",[d,Date.now()]);}
   async getRatingCardCache(fc:string){const r=await this.q<any>("SELECT rating_card_blob AS blob,rating_card_synced_at AS \"syncedAt\",rating_card_version AS version FROM profiles WHERE friend_code=$1",[fc]);return r[0]?.blob?r[0]:null;} async saveRatingCardCache(fc:string,d:Buffer,s:number,v:number){await this.q("UPDATE profiles SET rating_card_blob=$1,rating_card_synced_at=$2,rating_card_version=$3 WHERE friend_code=$4",[d,s,v,fc]);}
   async getAllAliases(){return this.q("SELECT id,title,alias,is_translation AS \"isTranslation\" FROM song_aliases ORDER BY title,alias");} async getTranslationAliases(){return this.q("SELECT title,alias FROM song_aliases WHERE is_translation=1");} async addAlias(t:string,a:string){const r=await this.q<any>("INSERT INTO song_aliases(title,alias) VALUES($1,$2) ON CONFLICT(title,alias) DO NOTHING RETURNING id",[t,a]);return r[0]?{id:r[0].id,title:t,alias:a,isTranslation:false}:null;} async deleteAlias(id:number){const r=await this.pool.query("DELETE FROM song_aliases WHERE id=$1",[id]);return (r.rowCount??0)>0;} async setAliasTranslation(id:number,on:boolean){return this.tx(async c=>{const r=await c.query<any>("SELECT title FROM song_aliases WHERE id=$1",[id]);if(!r.rows[0])return null;if(on)await c.query("UPDATE song_aliases SET is_translation=0 WHERE title=$1",[r.rows[0].title]);await c.query("UPDATE song_aliases SET is_translation=$1 WHERE id=$2",[on?1:0,id]);return r.rows[0].title;});}
+  async getMessageOverrides(){return this.q<Db.BotMessageRow>("SELECT key,text FROM bot_messages");}
+  async setMessageOverride(key:string,text:string){await this.pool.query("INSERT INTO bot_messages(key,text,updated_at) VALUES($1,$2,$3) ON CONFLICT(key) DO UPDATE SET text=EXCLUDED.text, updated_at=EXCLUDED.updated_at",[key,text,Date.now()]);}
+  async deleteMessageOverride(key:string){const r=await this.pool.query("DELETE FROM bot_messages WHERE key=$1",[key]);return (r.rowCount??0)>0;}
   async getRegisteredUserCount(){const r=await this.q<any>("SELECT count(*) n FROM sessions WHERE friend_code<>''");return Number(r[0]?.n??0);} async getLastSyncTime(){const r=await this.q<any>("SELECT max(last_synced_at) t FROM profiles");return r[0]?.t??null;} async getInactiveProfileFriendCodes(t:number){const r=await this.q<any>("SELECT friend_code AS \"friendCode\" FROM profiles WHERE last_synced_at<$1 AND rating_card_blob IS NOT NULL",[Date.now()-t]);return r.map((x:any)=>x.friendCode);} async clearRatingCardCacheForInactive(t:number){const r=await this.pool.query("UPDATE profiles SET rating_card_blob=NULL,rating_card_synced_at=0 WHERE last_synced_at<$1 AND rating_card_blob IS NOT NULL",[Date.now()-t]);return r.rowCount??0;}
 }
 export function createPostgresStorage(config:string|PoolConfig){return new PostgresStorage(config);} export async function initializePostgresStorage(config:string|PoolConfig){const s=createPostgresStorage(config);await s.initialize();return s;}

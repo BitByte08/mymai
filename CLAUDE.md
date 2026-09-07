@@ -37,10 +37,12 @@ Key entry points:
 - `src/storage/postgres.ts` — PostgreSQL storage and numbered migrations; main write path after `/sync`.
 - `src/scraper.ts` — Cheerio selectors bound to DX NET markup.
 - `src/bot/utils/ratingCard.ts` — satori + resvg PNG rendering (no JSX; uses a local `el()` helper), cached in DB.
+- `src/messages.ts` — single catalog of every user-facing bot string (`msg(key, vars)`). Defaults live here; `/관리` → `/admin/messages` writes overrides to `bot_messages`. Slash command/option names and `RATING_ROLES` names are deliberately NOT in the catalog (registered with Discord / looked up by name).
 
 ## Project-specific conventions & anti-patterns
 
 - **Slash commands use Korean names.** User `/설정` links to web settings; guild auto-role config is `/서버설정`, not `/설정`.
+- **User-facing strings go through `msg()` from `src/messages.ts`** — do not inline new Korean output text in commands. Fonts for PNG cards must be registered under distinct family names (satori does not fall back within one family); see `src/fonts.ts` `FONT_STACK`.
 - **PostgreSQL migrations are numbered and immutable after release.** Do not reintroduce SQLite runtime storage or the removed catalog baseline crawler.
 - **Web UI is inline string HTML/CSS/JS** in `src/web/index.ts` / `src/web/settingsPage.ts` — no React/templates. Match `docs/DESIGN.md` tokens: `#0d0d0d` canvas, `#1a1a1a` surface, `#2a2a2a` border, `#9333ea` accent, Inter + JetBrains Mono.
 - **Do not change `customId` formats casually** — the builder code (`src/bot/utils/embeds.ts`) and the router in `src/bot/index.ts` must change together.

@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from "discord.js";
 import { RATING_ROLES } from "../utils/roles";
+import { msg } from "../../messages";
 
 export const data = new SlashCommandBuilder()
   .setName("레이팅기준표")
@@ -10,10 +11,10 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   await interaction.reply({
     embeds: [
       new EmbedBuilder()
-        .setTitle("레이팅 티어 기준표")
+        .setTitle(msg("ratingTable.title"))
         .setColor(0xbd5dc7)
         .setDescription(lines.join("\n"))
-        .setFooter({ text: "/역할설정 으로 현재 레이팅에 맞는 역할 부여" }),
+        .setFooter({ text: msg("ratingTable.footer") }),
     ],
   });
 }

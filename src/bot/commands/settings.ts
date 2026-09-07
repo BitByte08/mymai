@@ -5,6 +5,7 @@ import {
 import { getUserFriendCode, getUserSyncToken, getUserDefaultServer } from "../../storage";
 import { getBaseUrl } from "../../web";
 import { PORT } from "../../config";
+import { msg } from "../../messages";
 
 export const data = new SlashCommandBuilder()
   .setName("설정")
@@ -16,31 +17,31 @@ async function buildSettingsContent(userId: string) {
   const termsUrl = `${baseUrl}/terms`;
   const server = await getUserDefaultServer(userId) === "jp" ? "JP" : "INTERNATIONAL";
   const embed = new EmbedBuilder()
-    .setTitle("⚙️ 웹 설정")
+    .setTitle(msg("settings.title"))
     .setColor(0x5865f2)
     .addFields(
       {
-        name: "현재 서버",
+        name: msg("settings.currentServerField"),
         value: server,
       },
       {
-        name: "설정 페이지에서 관리",
-        value: "프로필 공개 여부, 프리셋 북마클릿, 추가 북마클릿을 웹에서 관리할 수 있습니다.",
+        name: msg("settings.manageField"),
+        value: msg("settings.manageBody"),
       },
       {
-        name: "이용약관",
-        value: "추가 북마클릿 사용 책임과 면책 조항은 이용약관에서 확인할 수 있습니다.",
+        name: msg("settings.termsField"),
+        value: msg("settings.termsBody"),
       },
     );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
-      .setLabel("웹 설정 열기")
+      .setLabel(msg("settings.openButton"))
       .setStyle(ButtonStyle.Link)
       .setURL(settingsUrl)
       .setEmoji("⚙️"),
     new ButtonBuilder()
-      .setLabel("이용약관")
+      .setLabel(msg("settings.termsButton"))
       .setStyle(ButtonStyle.Link)
       .setURL(termsUrl)
       .setEmoji("📄"),
@@ -52,7 +53,7 @@ async function buildSettingsContent(userId: string) {
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!await getUserFriendCode(interaction.user.id)) {
     await interaction.reply({
-      content: "아직 프로필이 등록되지 않았습니다. `/북마클릿` 명령어로 먼저 등록해주세요.",
+      content: msg("common.selfNotRegistered"),
       flags: MessageFlags.Ephemeral,
     });
     return;

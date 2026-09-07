@@ -38,7 +38,7 @@ const CARD_H = 115;
 const GAP = 4;
 const ACCENT = "#9333ea";
 // 카드 레이아웃/계산이 바뀌면 올린다 → 기존 렌더 캐시가 자동 무효화됨
-const CARD_VERSION = 7;
+const CARD_VERSION = 8;
 
 // ─── Satori element helper (no JSX) ───────────────────────────────────────
 type El = {
@@ -226,12 +226,38 @@ function jacketCard(
   const infoRows: El[] = [];
   // 자릿수가 많으면(예: Arcaea의 소수 3자리) 카드 폭에 맞게 살짝 줄인다.
   const rsFontSize = vm.rsText.length >= 6 ? 17 : 19;
+  // 스코어 랭크(SSS+ 등)는 하단 구석에서 잘 안 보여 레이팅 숫자 옆에 크게 붙인다.
   infoRows.push(
-    el(
-      "div",
-      { fontSize: rsFontSize, fontWeight: 800, color: vm.rsColor, lineHeight: 1 },
-      vm.rsText,
-    ),
+    el("div", { display: "flex", alignItems: "baseline", width: "100%" }, [
+      el(
+        "span",
+        {
+          fontSize: rsFontSize,
+          fontWeight: 800,
+          color: vm.rsColor,
+          lineHeight: 1,
+          textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.8)",
+        },
+        vm.rsText,
+      ),
+      ...(vm.mark
+        ? [
+            el(
+              "span",
+              {
+                fontSize: 12,
+                fontWeight: 800,
+                color: cmColor[vm.mark] ?? "rgba(255,255,255,0.75)",
+                marginLeft: 5,
+                lineHeight: 1,
+                // 밝은 자켓 위에서도 읽히도록 어두운 그림자로 분리한다.
+                textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.8)",
+              },
+              vm.mark,
+            ),
+          ]
+        : []),
+    ]),
   );
 
   infoRows.push(
@@ -297,18 +323,6 @@ function jacketCard(
           color: cmColor[vm.clearMark] ?? "rgba(255,255,255,0.55)",
         },
         vm.clearMark,
-      ),
-    );
-  if (vm.mark)
-    rightMarks.push(
-      el(
-        "span",
-        {
-          fontSize: 7,
-          fontWeight: 700,
-          color: cmColor[vm.mark] ?? "rgba(255,255,255,0.65)",
-        },
-        vm.mark,
       ),
     );
   infoRows.push(

@@ -13,6 +13,10 @@ export function aliasAdminPage(token: string, songs: AliasSongInfo[], aliases: S
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:#0d0d0d;color:#ccc;font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;display:flex;justify-content:center;min-height:100vh;padding:48px 24px}
 .wrap{width:100%;max-width:820px}
+.tabs{display:flex;gap:8px;margin:0 0 20px}
+.tabs a{flex:0 0 auto;background:#1a1a1a;color:#888;border:1px solid #2a2a2a;border-radius:8px;padding:8px 18px;font-size:14px;font-weight:500;text-decoration:none;transition:all .15s}
+.tabs a:hover{color:#ccc}
+.tabs a.on{background:#9333ea;color:#fff;border-color:#9333ea}
 .mono{font-family:ui-monospace,'JetBrains Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#777;margin-bottom:6px}
 h1{font-size:24px;font-weight:800;color:#fff;letter-spacing:-.02em;margin-bottom:24px}
 .grid{display:flex;gap:1px;background:#2a2a2a;height:620px;border:1px solid #2a2a2a;border-radius:12px;overflow:hidden}
@@ -62,6 +66,7 @@ select{width:auto;margin-left:auto;cursor:pointer;font-weight:600;font-size:12px
 </style></head><body>
 <div class="wrap">
 <p class="mono">carolbot · admin</p>
+<div class="tabs"><a class="on" href="/admin/aliases?code=${token}">곡 별명</a><a href="/admin/messages?code=${token}">봇 문구</a></div>
 <h1>곡 별명 관리</h1>
 <div class="grid">
   <div class="col left">

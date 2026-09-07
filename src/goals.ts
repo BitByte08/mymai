@@ -13,6 +13,7 @@
 import type { CachedProfile } from "./storage/types";
 import type { PlayRecord } from "./scraper";
 import { getChartsInConstantRange, constantToDisplayLevel } from "./constants";
+import { msg } from "./messages";
 
 export type GoalKind = "rating" | "chart" | "aggregate";
 export const GOAL_KINDS: readonly GoalKind[] = ["rating", "chart", "aggregate"] as const;
@@ -118,9 +119,9 @@ export function parseLevelRange(text: string): { min: number; max: number; label
 }
 
 export function criterionLabel(c: ChartCriterion): string {
-  if (c.type === "achievement") return c.rank ? `${c.rank} 이상` : `${c.value}% 이상`;
-  if (c.type === "combo") return `${c.value} 이상`;
-  return `${c.value} 이상`;
+  if (c.type === "achievement") return c.rank ? msg("goalText.orAbove", { value: c.rank }) : msg("goalText.percentOrAbove", { value: c.value });
+  if (c.type === "combo") return msg("goalText.orAbove", { value: c.value });
+  return msg("goalText.orAbove", { value: c.value });
 }
 
 function meetsCriterion(best: { achievementVal: number; fc: string; sync: string }, c: ChartCriterion): boolean {
@@ -167,12 +168,12 @@ function relProgress(current: number, target: number, baseline?: number): number
 }
 
 export function describeGoal(spec: GoalSpec): string {
-  if (spec.kind === "rating") return `레이팅 ${spec.target} 도달`;
+  if (spec.kind === "rating") return msg("goalText.ratingTarget", { target: spec.target });
   if (spec.kind === "chart") {
     const kind = spec.musicKind ? ` [${spec.musicKind}]` : "";
     return `${spec.title} ${spec.diff}${kind} — ${criterionLabel(spec.criterion)}`;
   }
-  const scope = spec.count == null ? "전곡" : `${spec.count}개`;
+  const scope = spec.count == null ? msg("goalText.scopeAll") : msg("goalText.scopeCount", { count: spec.count });
   return `Lv${spec.levelLabel} · ${criterionLabel(spec.criterion)} ${scope}`;
 }
 
@@ -205,7 +206,7 @@ export function evaluateGoal(spec: GoalSpec, ctx: EvaluationContext): GoalEvalua
     );
     const best = bestOf(matches);
     const done = best ? meetsCriterion(best, spec.criterion) : false;
-    let valueText = "미기록";
+    let valueText = msg("goalText.noRecord");
     if (best) {
       valueText =
         spec.criterion.type === "achievement"
@@ -250,8 +251,8 @@ export function evaluateGoal(spec: GoalSpec, ctx: EvaluationContext): GoalEvalua
     progress: done ? 1 : relProgress(satisfied, target, spec.baseline),
     done,
     valueText: String(satisfied),
-    targetText: `${target}곡`,
-    detail: pool.length > 0 ? `구간 내 채보 ${pool.length}개` : "곡 상수 데이터 없음",
+    targetText: msg("goalText.songCount", { count: target }),
+    detail: pool.length > 0 ? msg("goalText.poolSize", { count: pool.length }) : msg("goalText.noConstantData"),
     currentValue: satisfied,
   };
 }

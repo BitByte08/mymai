@@ -1,4 +1,5 @@
 import { CONFIG } from "../config";
+import { msg } from "../messages";
 
 // carol-issue /triage/* 계약 (docs/openapi.json 원천).
 
@@ -71,7 +72,7 @@ async function callTriage<T>(path: string, body: Record<string, unknown>): Promi
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (e) {
-    const reason = e instanceof Error && e.name === "TimeoutError" ? "요청 시간 초과" : "네트워크 오류";
+    const reason = e instanceof Error && e.name === "TimeoutError" ? msg("issue.timeout") : msg("issue.networkError");
     throw new CarolIssueError("NETWORK_ERROR", `${reason}: ${String(e)}`, 0);
   }
 
@@ -105,22 +106,22 @@ export function userMessageForError(e: unknown): { text: string; alert: boolean 
   if (e instanceof CarolIssueError) {
     switch (e.code) {
       case "VALIDATION_ERROR":
-        return { text: "⚠️ 입력을 확인해주세요. 제보 내용이 비어있거나 형식이 올바르지 않습니다.", alert: false };
+        return { text: msg("issue.badInput"), alert: false };
       case "AI_PROVIDER_ERROR":
       case "AI_INVALID_OUTPUT":
-        return { text: "⏳ AI 초안 생성이 일시적으로 실패했습니다. 잠시 후 다시 시도해주세요.", alert: false };
+        return { text: msg("issue.draftFailed"), alert: false };
       case "NETWORK_ERROR":
-        return { text: "⏳ 제보 서버에 연결하지 못했습니다. 잠시 후 다시 시도해주세요.", alert: false };
+        return { text: msg("issue.unreachable"), alert: false };
       case "UNAUTHORIZED":
       case "FORBIDDEN_CLIENT":
       case "FORBIDDEN_GUILD":
       case "GITHUB_AUTH_ERROR":
       case "GITHUB_CREATE_ISSUE_ERROR":
       case "INTERNAL_ERROR":
-        return { text: "❌ 제보 처리 중 서버 오류가 발생했습니다. 관리자에게 문의해주세요.", alert: true };
+        return { text: msg("issue.serverError"), alert: true };
       default:
-        return { text: "❌ 알 수 없는 오류가 발생했습니다. 잠시 후 다시 시도해주세요.", alert: true };
+        return { text: msg("issue.unknownError"), alert: true };
     }
   }
-  return { text: "❌ 알 수 없는 오류가 발생했습니다. 잠시 후 다시 시도해주세요.", alert: true };
+  return { text: msg("issue.unknownError"), alert: true };
 }

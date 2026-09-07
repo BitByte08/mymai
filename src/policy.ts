@@ -1,3 +1,5 @@
+import { msg } from "./messages";
+
 /**
  * 개인정보처리방침 / 이용약관 버전.
  *
@@ -12,10 +14,8 @@ export const POLICY_VERSION = 20260901;
 /** 고지 문구 (디스코드 ephemeral 용). */
 export function policyNoticeText(baseUrl: string): string {
   return [
-    "**carol 개인정보처리방침이 업데이트되었습니다** (2026년 9월)",
-    "비공식 크롬 확장(캐롤익스텐션)을 통한 프로필 동기화 경로가 추가되었습니다. " +
-      "확장은 선택 사항이며 직접 설치하고 동기화를 켠 경우에만 동작합니다. " +
-      "전송되는 데이터의 종류·목적은 기존 북마클릿과 동일합니다.",
+    msg("policy.updatedTitle"),
+    msg("policy.updatedBody"),
     `${baseUrl}/privacy`,
   ].join("\n");
 }
