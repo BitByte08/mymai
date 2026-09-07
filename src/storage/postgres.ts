@@ -133,13 +133,15 @@ SELECT u.chart_key AS "chartKey",u.achievement_val AS "achievementVal",u.fc,u.sy
     return this.tx(async c=>{await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[profile]);
       const ordered=[...events].sort((a,b)=>a.playedAt-b.playedAt);
       for(const e of ordered){const id=e.sourcePlayId!.trim(), key=hash(`${profile}\x1f${id}`), payload=hash(JSON.stringify(e));const exists=await c.query<{event_key:string}>("SELECT event_key FROM achievement_play_event_log WHERE profile_key=$1 AND source_play_id=$2 OR event_key=$3",[profile,id,key]);if(exists.rowCount){if(e.ratingUp!=null)await c.query("UPDATE achievement_play_event_log SET rating_up=COALESCE(rating_up,$1) WHERE event_key=$2",[e.ratingUp,exists.rows[0].event_key]);continue;}
-        const score=Number(e.achievementVal), before=Number(e.achievementBefore);const gain=Math.max(0,score-before);const suppliedLevelConstant=e.levelConstant==null?null:Number(e.levelConstant);const server=profile.startsWith("jp:")?"jp":"intl";const levelConstant=suppliedLevelConstant!=null&&Number.isFinite(suppliedLevelConstant)?suppliedLevelConstant:getConstant(e.title,e.musicKind,e.diff,server)??levelToNumber(e.level);const calculatedRatingGain=levelConstant!=null&&Number.isFinite(levelConstant)?Math.max(0,calcSongRating(score,levelConstant,e.fc)-calcSongRating(before,levelConstant,"")):0;
-        // DX NET 상세 페이지의 (+N) 파싱값(e.ratingUp)은 보통 정확하지만, 宴/코스 등
-        // 다른 모드의 상세 페이지에선 (+N) 이 레이팅 증가분이 아닌 값으로 잘못 잡혀
-        // "레이팅 +200" 같은 비현실적 수치가 들어온다. 단일 채보가 물리적으로 줄 수
-        // 있는 최대 곡 레이팅(상수 불명 시 이론상 단일 채보 최대치 338)을 넘으면
-        // 파싱값을 버리고 점수 기반 추정치를 쓴다.
-        const parsedRatingUp=Number.isFinite(e.ratingUp)?Math.max(0,Number(e.ratingUp)):null;const ratingUpCeiling=levelConstant!=null&&Number.isFinite(levelConstant)?calcSongRating(score,levelConstant,e.fc):338;const ratingGain=parsedRatingUp!=null&&parsedRatingUp<=ratingUpCeiling?parsedRatingUp:calculatedRatingGain;
+        const score=Number(e.achievementVal), before=Number(e.achievementBefore);const gain=Math.max(0,score-before);const suppliedLevelConstant=e.levelConstant==null?null:Number(e.levelConstant);const server=profile.startsWith("jp:")?"jp":"intl";const levelConstant=suppliedLevelConstant!=null&&Number.isFinite(suppliedLevelConstant)?suppliedLevelConstant:getConstant(e.title,e.musicKind,e.diff,server)??levelToNumber(e.level);
+        // 레이팅 상승은 DX NET 상세 페이지의 (+N) 파싱값(e.ratingUp)만 신뢰한다.
+        // 달성률 기반 추정치는 (a) 베스트 50 진입 여부를 알 수 없고 (b) 이전 기록이
+        // 없는 채보(achievementBefore=0)에서 곡 레이팅 전체를 상승분으로 잡아
+        // "레이팅 +300" 같은 값을 만들어내므로 사용하지 않는다. 파싱값이 없으면 0.
+        // 宴/코스 등 다른 모드 상세 페이지에선 (+N) 이 레이팅 증가분이 아닌 값으로
+        // 잘못 잡히므로, 단일 채보가 물리적으로 줄 수 있는 최대 곡 레이팅
+        // (상수 불명 시 이론상 최대치 338)을 넘는 파싱값은 버린다.
+        const parsedRatingUp=Number.isFinite(e.ratingUp)?Math.max(0,Number(e.ratingUp)):null;const ratingUpCeiling=levelConstant!=null&&Number.isFinite(levelConstant)?calcSongRating(score,levelConstant,e.fc):338;const ratingGain=parsedRatingUp!=null&&parsedRatingUp<=ratingUpCeiling?parsedRatingUp:0;
         await c.query(`INSERT INTO achievement_play_event_log(event_key,profile_key,source_play_id,chart_key,is_baseline,played_at,source_sequence,captured_at,source_kind,achievement_val,fc,sync,rating_up,title,diff,level,music_kind,achievement_text,record_json,payload_hash,score_gain,is_meaningful,level_constant,achievement_before,rating_gain) VALUES($1,$2,$3,$4,0,$5,$6,$7,'clear_diff',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,1,$20,$21,$22)`,[key,profile,id,e.chartKey,e.playedAt,e.sourceSequence,e.capturedAt??capturedAt,score,e.fc,e.sync,e.ratingUp??null,e.title,e.diff,e.level,e.musicKind,e.achievementText,e.recordJson,payload,Number.isFinite(gain)?gain:0,levelConstant,before,Number.isFinite(ratingGain)?ratingGain:0]);
       } return "ok";});
   }
