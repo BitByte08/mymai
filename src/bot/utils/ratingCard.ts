@@ -231,7 +231,13 @@ function jacketCard(
     el("div", { display: "flex", alignItems: "baseline", width: "100%" }, [
       el(
         "span",
-        { fontSize: rsFontSize, fontWeight: 800, color: vm.rsColor, lineHeight: 1 },
+        {
+          fontSize: rsFontSize,
+          fontWeight: 800,
+          color: vm.rsColor,
+          lineHeight: 1,
+          textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.8)",
+        },
         vm.rsText,
       ),
       ...(vm.mark
@@ -242,8 +248,10 @@ function jacketCard(
                 fontSize: 12,
                 fontWeight: 800,
                 color: cmColor[vm.mark] ?? "rgba(255,255,255,0.75)",
-                marginLeft: "auto",
+                marginLeft: 5,
                 lineHeight: 1,
+                // 밝은 자켓 위에서도 읽히도록 어두운 그림자로 분리한다.
+                textShadow: "0 1px 2px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.8)",
               },
               vm.mark,
             ),
