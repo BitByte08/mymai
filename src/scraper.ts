@@ -203,15 +203,18 @@ function parseOneRecord($: cheerio.CheerioAPI, el: AnyNode, baseUrl: string): Pl
 
 export function parsePlaylogDetail(html: string): { ratingUp?: number } {
   const $ = cheerio.load(html);
-  const text = $(".playlog_rating_detail_block").text().replace(/\s+/g, " ");
-  const match = text.match(/\(\+(\d+)\)/);
-  const value = match ? Number(match[1]) : undefined;
+  // 레이팅 증가분은 상세 페이지에서 "(+23)" 형태로 고정 표기되며, 같은 페이지의
+  // 다른 영역에는 이 형식이 쓰이지 않는다. 컨테이너 클래스명은 버전마다 바뀌어
+  // 블록 한정 탐색이 자주 빗나가므로, 페이지 전체 텍스트에서 (+N) 을 찾는다.
+  $("script, style, noscript").remove();
+  const text = $.root().text().replace(/\s+/g, " ");
   // 단일 플레이로 총 레이팅이 오를 수 있는 최대치는 이론상 단일 채보 최대 곡
   // 레이팅(약 338)이다. 宴/코스 등 다른 모드의 상세 페이지에서 (+N) 이 레이팅
   // 증가분이 아닌 값(콤보·DX스코어 등)으로 잘못 잡히는 경우가 있어 상한을 둔다.
-  return {
-    ratingUp: value != null && Number.isFinite(value) && value <= 400 ? value : undefined,
-  };
+  const value = [...text.matchAll(/\(\+(\d+)\)/g)]
+    .map((m) => Number(m[1]))
+    .find((v) => Number.isFinite(v) && v <= 400);
+  return { ratingUp: value };
 }
 
 export function parseRecentRecords(html: string, server: MaimaiServer = "intl"): PlayRecord[] {
