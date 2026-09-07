@@ -4,6 +4,7 @@ import {
   ButtonStyle, ButtonInteraction,
 } from "discord.js";
 import { getGuildSetting, setGuildSetting } from "../../storage";
+import { msg } from "../../messages";
 
 export const data = new SlashCommandBuilder()
   .setName("서버설정")
@@ -12,19 +13,19 @@ export const data = new SlashCommandBuilder()
 async function buildSettingsContent(guildId: string) {
   const autoRole = await getGuildSetting(guildId);
   const embed = new EmbedBuilder()
-    .setTitle("⚙️ 서버 설정")
+    .setTitle(msg("serverSettings.title"))
     .setColor(0x5865f2)
-    .addFields({ name: "자동 역할 부여", value: autoRole ? "✅ 활성화" : "❌ 비활성화" });
+    .addFields({ name: msg("serverSettings.autoRoleField"), value: autoRole ? msg("serverSettings.enabled") : msg("serverSettings.disabled") });
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId("serverset:autorole:on")
-      .setLabel("활성화")
+      .setLabel(msg("serverSettings.enableButton"))
       .setStyle(autoRole ? ButtonStyle.Success : ButtonStyle.Secondary)
       .setDisabled(autoRole),
     new ButtonBuilder()
       .setCustomId("serverset:autorole:off")
-      .setLabel("비활성화")
+      .setLabel(msg("serverSettings.disableButton"))
       .setStyle(!autoRole ? ButtonStyle.Danger : ButtonStyle.Secondary)
       .setDisabled(!autoRole),
   );
@@ -34,11 +35,11 @@ async function buildSettingsContent(guildId: string) {
 
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!interaction.guild) {
-    await interaction.reply({ content: "서버에서만 사용 가능합니다.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("common.guildOnly"), flags: MessageFlags.Ephemeral });
     return;
   }
   if (!interaction.memberPermissions?.has(PermissionsBitField.Flags.ManageGuild)) {
-    await interaction.reply({ content: "서버 관리자만 사용 가능합니다.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("common.guildAdminOnly"), flags: MessageFlags.Ephemeral });
     return;
   }
   await interaction.reply({ ...(await buildSettingsContent(interaction.guild.id)), flags: MessageFlags.Ephemeral });

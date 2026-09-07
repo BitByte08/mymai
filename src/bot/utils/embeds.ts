@@ -26,6 +26,7 @@ import { aliasMatches, normalizeQuery, displayTitle } from "../../aliases";
 import { ratingColor } from "./roles";
 import { buildMarkMap, buildKindResolver, chartKey } from "../../scraper";
 import type { PlayRecord, ChartMarks, MaimaiServer, MapArea } from "../../scraper";
+import { msg } from "../../messages";
 
 // 곡 자켓 버퍼: DB 캐시 → maimai net(musicId) → otoge-db(title) 순으로 확보하고 캐시
 export async function jacketBuffer(r: PlayRecord): Promise<Buffer | null> {
@@ -136,13 +137,18 @@ export function profileEmb(
   const serverLabel = p.server === "jp" ? "JP" : "INTERNATIONAL";
   const emb = new EmbedBuilder()
     .setColor(ratingColor(p.rating))
-    .setTitle(p.trophy || "칭호 없음")
+    .setTitle(p.trophy || msg("embed.noTrophy"))
     .setDescription(
-      `**${p.playerName || "이름 없음"}**  ·  **${p.rating || 0}**\n` +
-        `플레이 ${p.playCount || 0}/${p.totalPlayCount || 0}회${stars}`,
+      msg("embed.profileBody", {
+        name: p.playerName || msg("embed.noName"),
+        rating: p.rating || 0,
+        play: p.playCount || 0,
+        total: p.totalPlayCount || 0,
+        stars,
+      }),
     )
     .setFooter({
-      text: `서버: ${serverLabel}  ·  마지막 동기화: ${new Date(p.lastSyncedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}`,
+      text: msg("embed.profileFooter", { server: serverLabel, synced: new Date(p.lastSyncedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) }),
     });
   if (hasAvatar) emb.setThumbnail("attachment://avatar.png");
   return emb;
@@ -221,7 +227,7 @@ export async function recentEmbeds(
   if (total === 0) {
     return {
       embeds: [
-        new EmbedBuilder().setColor(0x2b2d31).setDescription("기록 없음"),
+        new EmbedBuilder().setColor(0x2b2d31).setDescription(msg("recent.empty")),
       ],
       components: [],
       files: [],
@@ -250,8 +256,8 @@ export async function recentEmbeds(
             : null,
         )
         .addFields(
-          { name: "달성률", value: r.achievement, inline: true },
-          { name: "플레이일", value: r.date || "-", inline: true },
+          { name: msg("recent.achievementField"), value: r.achievement, inline: true },
+          { name: msg("recent.dateField"), value: r.date || "-", inline: true },
         );
       const buf = await jacketBuffer(r);
       if (buf) {
@@ -265,7 +271,7 @@ export async function recentEmbeds(
 
   const prevBtn = new ButtonBuilder()
     .setCustomId(`page:${userId}:${idx - 1}`)
-    .setLabel("◀ 이전")
+    .setLabel(msg("embed.prev"))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(idx === 0);
   const countBtn = new ButtonBuilder()
@@ -275,7 +281,7 @@ export async function recentEmbeds(
     .setDisabled(true);
   const nextBtn = new ButtonBuilder()
     .setCustomId(`page:${userId}:${idx + 1}`)
-    .setLabel("다음 ▶")
+    .setLabel(msg("embed.next"))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(idx === total - 1);
 
@@ -289,7 +295,7 @@ export async function recentEmbeds(
     game.map((_, si) =>
       new ButtonBuilder()
         .setCustomId(`share:${userId}:${idx}:${si}`)
-        .setLabel(`#${si + 1} 공유`)
+        .setLabel(msg("embed.share", { index: si + 1 }))
         .setStyle(ButtonStyle.Success),
     ),
   );
@@ -298,7 +304,7 @@ export async function recentEmbeds(
 }
 
 function areaKindLabel(kind: MapArea["kind"]): string {
-  return kind === "event" ? "이벤트 지방" : "일반 지방";
+  return kind === "event" ? msg("map.eventArea") : msg("map.normalArea");
 }
 
 export const MAP_PAGE_SIZE = 5;
@@ -313,9 +319,9 @@ function progressBar(percent: number | null): string {
 function mapAreaDescription(area: MapArea): string {
   const lines = [
     progressBar(area.progressPercent),
-    area.progressText ? `진행도: ${area.progressText}` : "",
-    area.distanceText ? `거리: ${area.distanceText}` : "",
-    area.rewardText ? `보상: ${area.rewardText}` : "",
+    area.progressText ? msg("map.progress", { value: area.progressText }) : "",
+    area.distanceText ? msg("map.distance", { value: area.distanceText }) : "",
+    area.rewardText ? msg("map.reward", { value: area.rewardText }) : "",
   ].filter((line) => line.length > 0);
   if (lines.length > 0) return lines.join("\n");
   return truncateVisual(area.rawText, 180);
@@ -330,11 +336,11 @@ function buildMapAreaCard(
 ): EmbedBuilder {
   const emb = new EmbedBuilder()
     .setColor(area.kind === "event" ? 0x9333ea : 0x2b2d31)
-    .setTitle(truncateVisual(area.name || "이름 없는 지방", 32))
+    .setTitle(truncateVisual(area.name || msg("map.unnamedArea"), 32))
     .setAuthor({ name: areaKindLabel(area.kind) })
     .setDescription(mapAreaDescription(area))
     .setFooter({
-      text: `${p.server === "jp" ? "JP" : "INTERNATIONAL"}  ·  ${absoluteIdx + 1} / ${totalAreas}  ·  마지막 동기화: ${new Date(p.lastSyncedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}`,
+      text: msg("map.footer", { server: p.server === "jp" ? "JP" : "INTERNATIONAL", index: absoluteIdx + 1, total: totalAreas, synced: new Date(p.lastSyncedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) }),
     });
   if (imageRef) emb.setThumbnail(imageRef);
   return emb;
@@ -351,7 +357,7 @@ export async function mapAreaEmbed(
       embeds: [
         new EmbedBuilder()
           .setColor(0x2b2d31)
-          .setDescription("지방 진행도 없음\n북마클릿을 다시 실행하면 업데이트됩니다."),
+          .setDescription(msg("map.empty")),
       ],
       components: [],
       files: [],
@@ -373,7 +379,7 @@ export async function mapAreaEmbed(
 
   const prevBtn = new ButtonBuilder()
     .setCustomId(`map:${userId}:${idx - 1}`)
-    .setLabel("◀ 이전")
+    .setLabel(msg("embed.prev"))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(idx === 0);
   const countBtn = new ButtonBuilder()
@@ -383,13 +389,13 @@ export async function mapAreaEmbed(
     .setDisabled(true);
   const nextBtn = new ButtonBuilder()
     .setCustomId(`map:${userId}:${idx + 1}`)
-    .setLabel("다음 ▶")
+    .setLabel(msg("embed.next"))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(idx === totalPages - 1);
   const shareButtons = pageAreas.map((area, offset) =>
     new ButtonBuilder()
       .setCustomId(`mapshare:${userId}:${start + offset}`)
-      .setLabel(`공유 · ${truncateVisual(area.name || "지방", 10)}`)
+      .setLabel(msg("map.shareButton", { area: truncateVisual(area.name || msg("map.areaFallback"), 10) }))
       .setStyle(ButtonStyle.Success),
   );
 
@@ -474,7 +480,7 @@ export async function searchResultEmbeds(
       embeds: [
         new EmbedBuilder()
           .setColor(0x2b2d31)
-          .setDescription(`"${query}"${typeLabel} 검색 결과 없음`),
+          .setDescription(msg("searchResult.empty", { query, type: typeLabel })),
       ],
       components: [],
       files: [],
@@ -534,17 +540,17 @@ export async function searchResultEmbeds(
       // 제목이 아닌 점수표 위 한 줄에 두고, 한 서버 전용 곡이면 "전용"으로 구분.
       const verLabel = p.server === "jp" ? "japan ver." : "intl ver.";
       const regionLine =
-        (getRegionExclusive(title) ? `${verLabel} 전용` : verLabel) + "\n";
+        (getRegionExclusive(title) ? msg("searchResult.regionExclusive", { version: verLabel }) : verLabel) + "\n";
       const emb = new EmbedBuilder()
         .setColor(0x2b2d31)
         .setTitle(displayTitle(title, translate) + kind)
-        .setAuthor({ name: `"${query}"${typeLabel} 에 대한 검색 결과` })
+        .setAuthor({ name: msg("searchResult.author", { query, type: typeLabel }) })
         .setDescription(
           regionLine +
             "```\n" +
             lines.join("\n") +
             "\n```" +
-            `\n[▶ 외부출력](${ytUrl})`,
+            "\n" + msg("searchResult.externalLink", { url: ytUrl }),
         );
       if (buf) {
         const name = `sjacket${i}.png`;
@@ -559,7 +565,7 @@ export async function searchResultEmbeds(
   const ctxToken = token ?? putSearchCtx({ userId, query, typeFilter });
   const prevBtn = new ButtonBuilder()
     .setCustomId(`search:${ctxToken}:${idx - 1}`)
-    .setLabel("◀ 이전")
+    .setLabel(msg("embed.prev"))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(idx === 0);
   const countBtn = new ButtonBuilder()
@@ -569,7 +575,7 @@ export async function searchResultEmbeds(
     .setDisabled(true);
   const nextBtn = new ButtonBuilder()
     .setCustomId(`search:${ctxToken}:${idx + 1}`)
-    .setLabel("다음 ▶")
+    .setLabel(msg("embed.next"))
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(idx === totalPages - 1);
 
@@ -625,7 +631,7 @@ export function rtTableEmbed(
         new EmbedBuilder()
           .setColor(0x2b2d31)
           .setDescription(
-            "레이팅 기록 없음\n북마클릿을 다시 실행하면 업데이트됩니다.",
+            msg("ratingTarget.empty"),
           ),
       ],
       components: [],
@@ -668,8 +674,7 @@ export function rtTableEmbed(
     "```\n" + RT_HEADER + "\n" + withSeps(otherRows).join("\n") + "\n```";
 
   const desc =
-    `**신곡 NEW · ${newRecords.length}곡**\n${newBlock}\n` +
-    `**구곡 OTHERS · ${otherRecords.length}곡**\n${otherBlock}`;
+    msg("ratingTarget.body", { newCount: newRecords.length, newBlock, otherCount: otherRecords.length, otherBlock });
 
   return {
     embeds: [
@@ -677,7 +682,7 @@ export function rtTableEmbed(
         .setColor(0x2b2d31)
         .setDescription(desc)
         .setFooter({
-          text: `총 ${newRecords.length + otherRecords.length}곡  ·  RS=곡별 레이팅 점수`,
+          text: msg("ratingTarget.footer", { total: newRecords.length + otherRecords.length }),
         }),
     ],
     components: [],
@@ -691,15 +696,15 @@ export async function buildProfileReply(
   const avatar = await buildAvatarAttachment(userId, cached.server);
   const recentBtn = new ButtonBuilder()
     .setCustomId(`recent:${userId}`)
-    .setLabel("최근 플레이")
+    .setLabel(msg("profileButton.recent"))
     .setStyle(ButtonStyle.Secondary);
   const topBtn = new ButtonBuilder()
     .setCustomId(`rt:${userId}`)
-    .setLabel("레이팅 대상곡")
+    .setLabel(msg("profileButton.ratingTarget"))
     .setStyle(ButtonStyle.Primary);
   const mapBtn = new ButtonBuilder()
     .setCustomId(`mapopen:${userId}`)
-    .setLabel("지방 진행도")
+    .setLabel(msg("profileButton.map"))
     .setStyle(ButtonStyle.Secondary);
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     recentBtn,

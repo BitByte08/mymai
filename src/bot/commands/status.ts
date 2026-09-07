@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from "discord.js";
 import { getRegisteredUserCount, getLastSyncTime } from "../../storage";
+import { msg } from "../../messages";
 
 export const data = new SlashCommandBuilder()
   .setName("상태")
@@ -23,14 +24,14 @@ function formatUptime(seconds: number): string {
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const parts: string[] = [];
-  if (d > 0) parts.push(`${d}일`);
-  if (h > 0) parts.push(`${h}시간`);
-  parts.push(`${m}분`);
+  if (d > 0) parts.push(msg("status.days", { value: d }));
+  if (h > 0) parts.push(msg("status.hours", { value: h }));
+  parts.push(msg("status.minutes", { value: m }));
   return parts.join(" ");
 }
 
 function formatPing(ping: number): string {
-  return ping >= 0 ? `${ping}ms` : "측정 중";
+  return ping >= 0 ? `${ping}ms` : msg("status.pingMeasuring");
 }
 
 function pingColor(ping: number): number {
@@ -48,19 +49,19 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   const version = displayVersion();
   const lastSyncStr = lastSync
     ? new Date(lastSync).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })
-    : "없음";
+    : msg("status.none");
 
   await interaction.editReply({
     embeds: [
       new EmbedBuilder()
-        .setTitle("서버 상태")
+        .setTitle(msg("status.title"))
         .setColor(pingColor(ping))
         .addFields(
-          { name: "핑", value: formatPing(ping), inline: true },
-          { name: "가동 시간", value: uptime, inline: true },
-          { name: "버전", value: version, inline: true },
-          { name: "등록 유저", value: `${userCount}명`, inline: true },
-          { name: "마지막 동기화", value: lastSyncStr, inline: false },
+          { name: msg("status.ping"), value: formatPing(ping), inline: true },
+          { name: msg("status.uptime"), value: uptime, inline: true },
+          { name: msg("status.version"), value: version, inline: true },
+          { name: msg("status.userCount"), value: msg("status.userCountValue", { count: userCount }), inline: true },
+          { name: msg("status.lastSync"), value: lastSyncStr, inline: false },
         ),
     ],
   });

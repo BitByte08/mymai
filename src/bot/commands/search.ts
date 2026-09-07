@@ -75,7 +75,7 @@ export async function execute(
   } catch (e) {
     console.error("[검색]", e);
     await interaction
-      .editReply({ content: "검색에 실패했습니다." })
+      .editReply({ content: msg("search.failed") })
       .catch(() => {});
   }
 }

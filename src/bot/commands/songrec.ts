@@ -300,7 +300,7 @@ export async function execute(
   const clearRecords = getClearList(cached);
   if (clearRecords.length === 0) {
     await interaction.reply({
-      content: "기록이 없습니다. `/북마클릿`으로 먼저 동기화해주세요.",
+      content: msg("songrec.noRecords"),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -318,7 +318,7 @@ export async function execute(
   }, cached.server);
   if (recs.length === 0) {
     await interaction.reply({
-      content: "추천할 채보를 찾지 못했습니다.",
+      content: msg("songrec.noCandidates"),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -327,7 +327,7 @@ export async function execute(
   const translate = await getTranslateTitles(interaction.user.id);
   const embeds = recs.map((r, i) => {
     const chartDelta = r.targetRS - r.currentRS;
-    const cur = r.currentAch > 0 ? `${r.currentAch.toFixed(4)}%` : "미플레이";
+    const cur = r.currentAch > 0 ? `${r.currentAch.toFixed(4)}%` : msg("songrec.notPlayed");
     const newRating = cached.rating + r.ratingDelta;
     // 유튜브 외부출력 검색: "maimai {곡명} {ST/DX} {난이도} 外部出力"
     const ytQuery = encodeURIComponent(
@@ -339,11 +339,11 @@ export async function execute(
     const emb = new EmbedBuilder()
       .setColor(RANK_COLOR[r.targetRank] ?? 0x9333ea)
       .setTitle(`${displayTitle(r.title, translate)} [${r.kind}]`)
-      .setDescription(`[▶ 외부출력](${ytUrl})`)
+      .setDescription(msg("common.externalLink", { url: ytUrl }))
       .addFields(
         {
           name: "채보",
-          value: `\`${r.diff}\`  ·  상수 \`${r.level.toFixed(1)}\`  ·  ${r.isNew ? "신곡" : "구곡"}`,
+          value: `\`${r.diff}\`  ·  상수 \`${r.level.toFixed(1)}\`  ·  ${r.isNew ? msg("songrec.newSong") : msg("songrec.oldSong")}`,
           inline: true,
         },
         {

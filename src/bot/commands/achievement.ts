@@ -94,9 +94,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     console.error(`[성과] 실패 scope=${targetScope} userSuffix=${userId.slice(-6)} message=${errorMessage}`, e);
     try {
       if (replyDeferred) {
-        await interaction.editReply({ content: "성과 이미지 생성에 실패했습니다." });
+        await interaction.editReply({ content: msg("achievement.renderFailed") });
       } else {
-        await interaction.reply({ content: "성과 데이터를 불러오지 못했습니다.", flags: MessageFlags.Ephemeral });
+        await interaction.reply({ content: msg("achievement.loadFailed"), flags: MessageFlags.Ephemeral });
       }
     } catch (replyError) {
       const replyMessage = replyError instanceof Error ? `${replyError.name}: ${replyError.message}` : String(replyError);

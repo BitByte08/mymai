@@ -91,7 +91,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   let hi = maxC ?? 99;
   if (lo > hi) [lo, hi] = [hi, lo];
   const rangeLabel =
-    minC == null && maxC == null ? "전체"
+    minC == null && maxC == null ? msg("random.rangeAll")
     : minC != null && maxC != null ? `${minC.toFixed(1)}~${maxC.toFixed(1)}`
     : minC != null ? `${minC.toFixed(1)}↑`
     : `${(maxC as number).toFixed(1)}↓`;
@@ -108,7 +108,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const cached = fc ? await getCachedProfile(fc) : null;
     if (!cached) {
       const notice = target.id === interaction.user.id
-        ? "플레이여부 필터는 프로필이 필요합니다. `/북마클릿`으로 먼저 등록해주세요."
+        ? msg("random.needProfileForPlayFilter")
         : msg("common.otherNotRegistered", { user: `<@${target.id}>` });
       await interaction.reply({ content: notice, flags: MessageFlags.Ephemeral });
       return;
@@ -135,13 +135,13 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   });
 
   if (candidates.length === 0) {
-    await interaction.reply({ content: "조건에 맞는 곡이 없습니다.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("random.noMatch"), flags: MessageFlags.Ephemeral });
     return;
   }
 
   const picks = shuffle(candidates).slice(0, count);
   const header = [
-    "랜덤",
+    msg("random.label"),
     rangeLabel === "전체" ? "전 상수" : `상수 ${rangeLabel}`,
     typeOpt || undefined,
     diffOpt || undefined,
@@ -158,7 +158,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const emb = new EmbedBuilder()
       .setColor(MAI_DIFF_COLOR[c.diff] ?? 0x9333ea)
       .setTitle(`${displayTitle(c.title, translate)} [${c.kind}]`)
-      .setDescription(`[▶ 외부출력](${ytUrl})`)
+      .setDescription(msg("common.externalLink", { url: ytUrl }))
       .addFields(
         { name: "채보", value: `\`${c.diff}\`  ·  상수 \`${c.level.toFixed(1)}\``, inline: true },
       );

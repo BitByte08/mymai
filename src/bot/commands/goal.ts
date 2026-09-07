@@ -144,7 +144,7 @@ function criterionFrom(
 ): ChartCriterion | { error: string } {
   if (achievement != null) return { type: "achievement", value: achievement };
   if (choice && CRITERION_CHOICES[choice]) return CRITERION_CHOICES[choice];
-  return { error: "`기준` 선택지 또는 `달성률` 중 하나를 지정하세요." };
+  return { error: msg("goal.needCriteriaOrAchievement") };
 }
 
 async function buildSpec(
@@ -154,7 +154,7 @@ async function buildSpec(
 
   if (type === "rating") {
     const target = interaction.options.getInteger("레이팅");
-    if (target == null) return { error: "레이팅 목표에는 `레이팅` 값이 필요합니다." };
+    if (target == null) return { error: msg("goal.needRating") };
     return { spec: { kind: "rating", target } };
   }
 
@@ -164,7 +164,7 @@ async function buildSpec(
   if (type === "chart") {
     const rawTitle = interaction.options.getString("곡");
     const diff = interaction.options.getString("난이도");
-    if (!rawTitle || !diff) return { error: "채보 목표에는 `곡` 과 `난이도` 가 필요합니다." };
+    if (!rawTitle || !diff) return { error: msg("goal.needChartAndDiff") };
     const criterion = criterionFrom(achievement, choice);
     if ("error" in criterion) return criterion;
     const { title, known } = resolveTitle(rawTitle);
@@ -177,15 +177,15 @@ async function buildSpec(
         ...(musicKind ? { musicKind } : {}),
         criterion,
       },
-      note: known ? undefined : `\`${title}\` 곡을 목록에서 찾지 못했습니다. 곡명이 정확한지 확인해주세요.`,
+      note: known ? undefined : msg("goal.songNotFound", { title }),
     };
   }
 
   // aggregate
   const levelText = interaction.options.getString("레벨");
-  if (!levelText) return { error: "집계 목표에는 `레벨` 이 필요합니다. (예: 13, 13+, 13-14+)" };
+  if (!levelText) return { error: msg("goal.needLevel") };
   const range = parseLevelRange(levelText);
-  if (!range) return { error: "`레벨` 형식이 올바르지 않습니다. 예: `13`, `13+`, `13-14+`" };
+  if (!range) return { error: msg("goal.badLevelFormat") };
   const criterion = criterionFrom(achievement, choice);
   if ("error" in criterion) return criterion;
   const count = interaction.options.getInteger("개수");
@@ -261,10 +261,14 @@ async function goalsEmbed(
   const doneCount = evaluated.filter((e) => e.done).length;
   const embed = new EmbedBuilder()
     .setColor(ACCENT)
-    .setTitle(`🎯 ${displayName} 님의 목표`)
+    .setTitle(msg("goal.listTitle", { name: displayName }))
     .setDescription(lines.join("\n\n"))
     .setFooter({
-      text: `${doneCount}/${goals.length} 완료${totalPages > 1 ? ` · ${idx + 1}/${totalPages}페이지` : ""} · 동기화할 때마다 자동 갱신`,
+      text: msg("goal.listFooter", {
+        done: doneCount,
+        total: goals.length,
+        page: totalPages > 1 ? msg("goal.listFooterPage", { index: idx + 1, pages: totalPages }) : "",
+      }),
     });
 
   const components: ActionRowBuilder<ButtonBuilder>[] = [];
@@ -300,13 +304,13 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
   }
   const page = parseInt(pageRaw ?? "0") || 0;
   if (ownerId !== interaction.user.id && (await getProfilePrivate(ownerId))) {
-    await interaction.reply({ content: "해당 유저는 프로필을 비공개로 설정했습니다.", flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("goal.otherPrivate"), flags: MessageFlags.Ephemeral });
     return;
   }
   const displayName =
     interaction.guild?.members.cache.get(ownerId)?.displayName ??
     interaction.client.users.cache.get(ownerId)?.username ??
-    "유저";
+    msg("goal.defaultName");
   const result = await goalsEmbed(ownerId, displayName, page);
   await interaction.update(result);
 }
@@ -337,7 +341,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const goal = goals[number - 1] as GoalRow | undefined;
     if (!goal) {
       await interaction.reply({
-        content: `${number}번 목표가 없습니다. \`/목표 목록\` 에서 번호를 확인해주세요.`,
+        content: msg("goal.notFound", { number }),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -356,7 +360,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   // 추가
   if ((await countGoals(interaction.user.id)) >= MAX_GOALS_PER_USER) {
     await interaction.reply({
-      content: `목표는 최대 ${MAX_GOALS_PER_USER}개까지 등록할 수 있습니다. 먼저 \`/목표 삭제\` 로 정리해주세요.`,
+      content: msg("goal.limitReached", { max: MAX_GOALS_PER_USER }),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -382,20 +386,26 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const embed = new EmbedBuilder()
     .setColor(ACCENT)
-    .setTitle("🎯 목표 추가됨")
+    .setTitle(msg("goal.addedTitle"))
     .setDescription(`**${label}**`);
 
   if (profile) {
     const evaluation = evaluateGoal(built.spec, { profile });
     const bar = progressBar(evaluation.done ? 1 : evaluation.progress);
     embed.addFields({
-      name: "현재 진행도",
-      value: `\`${bar}\` ${progressPercent(evaluation.progress, evaluation.done)}% · ${evaluation.valueText}${evaluation.targetText ? ` / ${evaluation.targetText}` : ""}${evaluation.done ? "  ✅ 이미 달성!" : ""}`,
+      name: msg("goal.progressField"),
+      value: msg("goal.progressValue", {
+        bar,
+        percent: progressPercent(evaluation.progress, evaluation.done),
+        value: evaluation.valueText,
+        target: evaluation.targetText ? ` / ${evaluation.targetText}` : "",
+        done: evaluation.done ? msg("goal.alreadyDone") : "",
+      }),
     });
   } else {
     embed.addFields({
-      name: "현재 진행도",
-      value: "`/북마클릿` 으로 프로필을 먼저 등록하면 동기화할 때마다 자동으로 갱신됩니다.",
+      name: msg("goal.progressField"),
+      value: msg("goal.progressNeedsProfile"),
     });
   }
   if (built.note) embed.setFooter({ text: built.note });
