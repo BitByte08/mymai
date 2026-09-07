@@ -12,8 +12,19 @@ test("parsePlaylogDetail: 정상 (+N) 파싱", () => {
   assert.equal(s.parsePlaylogDetail(detailHtml("(+0)")).ratingUp, 0);
 });
 
-test("parsePlaylogDetail: 블록 없으면 undefined", () => {
+test("parsePlaylogDetail: (+N) 이 없으면 undefined", () => {
   assert.equal(s.parsePlaylogDetail("<div>no rating here</div>").ratingUp, undefined);
+});
+
+test("parsePlaylogDetail: 컨테이너 클래스와 무관하게 페이지 전체에서 찾는다", () => {
+  // 레이팅 상세 블록의 클래스명이 바뀌거나 다른 구조로 감싸여 있어도 파싱되어야 한다.
+  assert.equal(s.parsePlaylogDetail('<div class="something_else">RATING 13234 (+23)</div>').ratingUp, 23);
+  assert.equal(s.parsePlaylogDetail("<body><span>13234</span><span>(+7)</span></body>").ratingUp, 7);
+});
+
+test("parsePlaylogDetail: script/style 안의 (+N) 은 무시한다", () => {
+  assert.equal(s.parsePlaylogDetail('<script>var x = "(+999)";</script><div>(+12)</div>').ratingUp, 12);
+  assert.equal(s.parsePlaylogDetail('<script>var x = "(+12)";</script>').ratingUp, undefined);
 });
 
 test("parsePlaylogDetail: 다른 모드 상세 페이지의 비현실적 (+N) 은 버린다", () => {

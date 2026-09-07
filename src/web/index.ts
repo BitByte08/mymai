@@ -3,7 +3,7 @@ import * as fs from "fs";
 import { gunzip } from "zlib";
 import { promisify } from "util";
 import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey } from "../scraper";
-import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, setMessageOverride, deleteMessageOverride, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress, getPolicyAck, setPolicyAck } from "../storage";
+import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, backfillEventRatingUp, getAllAliases, addAlias, deleteAlias, setAliasTranslation, setMessageOverride, deleteMessageOverride, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress, getPolicyAck, setPolicyAck } from "../storage";
 import { POLICY_VERSION } from "../policy";
 import type { SongAliasRow } from "../storage/types";
 import { buildBookmarkletJs, setBaseUrl, getBaseUrl, buildBookmarklet, BOOKMARKLET_PRESETS, getBookmarkletPresets } from "./bookmarklet";
@@ -834,6 +834,20 @@ a{color:#c084fc}
         // 프로필 저장/세션 갱신 같은 핵심 동기화에는 영향 없게 별도 try/catch로 격리한다.
         let canonicalStatus = "ok";
         try {
+          // 이번 동기화에서 받은 상세 페이지의 (+N) 으로, 이전 동기화 때 상세 수집에
+          // 실패해 rating_up 이 비어 있던 이벤트를 먼저 메운다. 새 이벤트가 하나도
+          // 생기지 않는 동기화(달성률 변화 없음)에서도 동작해야 하므로 배치와 분리한다.
+          const ratingUpByPlayId = new Map<string, number>();
+          for (const r of [...enrichedRecentRecords, ...enrichedHistoryRecords]) {
+            if (r.detailIdx && typeof r.ratingUp === "number") ratingUpByPlayId.set(r.detailIdx, r.ratingUp);
+          }
+          if (ratingUpByPlayId.size) {
+            const filled = await backfillEventRatingUp(
+              savedProfileKey,
+              [...ratingUpByPlayId].map(([sourcePlayId, ratingUp]) => ({ sourcePlayId, ratingUp })),
+            );
+            if (filled) console.log(`[web] 레이팅 상승 백필: ${filled}건 (상세 ${ratingUpByPlayId.size}개 기준)`);
+          }
           const chartDiffs = await upsertChartClears(
             savedProfileKey,
             clearRecords.map((r) => ({ chartKey: chartKey(r), achievementVal: r.achievementVal, fc: r.fc, sync: r.sync })),

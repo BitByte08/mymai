@@ -40,7 +40,7 @@ const jacketCache = new Map<string, string | null>();
 // 반복 호출하거나 다른 사람이 조회할 때마다 satori+resvg 전체를 다시 돌린다.
 // (유저·날짜·마지막 동기화 시각·번역여부·페이지) 키로 PNG 를 재사용한다.
 // lastSyncedAt 이 키에 들어가므로 새 동기화 후에는 자연스럽게 무효화된다.
-const ACH_CARD_VERSION = 2;
+const ACH_CARD_VERSION = 3;
 const ACH_CARD_CACHE_MAX = 48;
 const achCardCache = new Map<string, Buffer>();
 
@@ -116,9 +116,13 @@ function chartConstant(record: PlayRecord, profile: CachedProfile): number | nul
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// 레이팅 상승은 DX NET 상세 페이지의 (+N) 파싱값만 신뢰한다. 예전엔 파싱값이 없으면
+// 달성률 기반 추정치로 메웠지만, 이전 기록이 없는 채보에서 곡 레이팅 전체(+300 등)가
+// 상승분으로 잡히는 오류가 있었다. 파싱값이 없으면 "알 수 없음"(null)으로 둔다.
 function ratingGain(record: PlayRecord): number | null {
-  const value = details(record).ratingGain ?? record.ratingUp;
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  if (typeof record.ratingUp !== "number" || !Number.isFinite(record.ratingUp)) return null;
+  const value = details(record).ratingGain;
+  return typeof value === "number" && Number.isFinite(value) ? value : record.ratingUp;
 }
 
 function achievementAfter(record: PlayRecord): number {
@@ -135,7 +139,8 @@ function recordRow(record: PlayRecord, rank: number, profile: CachedProfile, jac
   const diffColor = DIFF_COLOR[record.diff] ?? MUTED;
   const marks = [record.fc, record.sync].filter((mark) => mark.length > 0);
   const gain = ratingGain(record);
-  const ratingLabel = gain !== null ? `rating +${gain.toFixed(2)}` : typeof details(record).rating === "number" ? `rating ${details(record).rating!.toFixed(2)}` : "rating —";
+  // 마이마이 레이팅은 정수 단위라 소수점을 붙이지 않는다.
+  const ratingLabel = gain !== null ? `rating +${Math.round(gain)}` : typeof details(record).rating === "number" ? `rating ${Math.round(details(record).rating!)}` : "rating —";
   const constant = chartConstant(record, profile);
   const constantLabel = constant !== null ? constant.toFixed(1) : record.level;
   const before = achievementBefore(record);
