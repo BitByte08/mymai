@@ -3,13 +3,18 @@ import * as fs from "fs";
 import { gunzip } from "zlib";
 import { promisify } from "util";
 import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey } from "../scraper";
-import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress, getPolicyAck, setPolicyAck } from "../storage";
+import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, getAllAliases, addAlias, deleteAlias, setAliasTranslation, setMessageOverride, deleteMessageOverride, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress, getPolicyAck, setPolicyAck } from "../storage";
 import { POLICY_VERSION } from "../policy";
 import type { SongAliasRow } from "../storage/types";
 import { buildBookmarkletJs, setBaseUrl, getBaseUrl, buildBookmarklet, BOOKMARKLET_PRESETS, getBookmarkletPresets } from "./bookmarklet";
 import { computeRatingTarget, getAllSongTitles } from "../constants";
 import { settingsPage } from "./settingsPage";
 import { aliasAdminPage } from "./aliasAdminPage";
+import { messagesAdminPage, type MessageRowVM } from "./messagesAdminPage";
+import {
+  MESSAGE_KEYS, defaultOf, getOverride, rawText, placeholdersOf,
+  validateOverride, loadMessages, type MessageKey,
+} from "../messages";
 import { isValidAdminToken } from "./adminAuth";
 import { loadAliases } from "../aliases";
 import { CONFIG } from "../config";
@@ -385,6 +390,70 @@ a{color:#c084fc}
     }
 
     // ─── 곡 별명 관리 (관리자, /별명 명령으로 발급한 토큰 필요) ──────────────
+    // /관리 명령이 여는 진입점. 탭 페이지 중 첫 번째로 보낸다.
+    if (req.method === "GET" && url.pathname === "/admin") {
+      const token = url.searchParams.get("code") || "";
+      if (!isValidAdminToken(token)) { res.writeHead(403); res.end("expired"); return; }
+      res.writeHead(302, { Location: `/admin/aliases?code=${encodeURIComponent(token)}`, "cache-control": "no-cache" });
+      res.end();
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/admin/messages") {
+      const token = url.searchParams.get("code") || "";
+      if (!isValidAdminToken(token)) { res.writeHead(403); res.end("expired"); return; }
+      const rows: MessageRowVM[] = MESSAGE_KEYS.map((key) => {
+        const def = defaultOf(key);
+        return {
+          key,
+          group: key.includes(".") ? key.slice(0, key.indexOf(".")) : "기타",
+          text: rawText(key),
+          def,
+          overridden: getOverride(key) !== null,
+          vars: placeholdersOf(def),
+        };
+      });
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(messagesAdminPage(token, rows));
+      return;
+    }
+
+    if (req.method === "POST" && (url.pathname === "/api/admin/messages" || url.pathname === "/api/admin/messages/reset")) {
+      const token = url.searchParams.get("code") || "";
+      if (!isValidAdminToken(token)) { res.writeHead(403, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: false, error: "expired" })); return; }
+      const reset = url.pathname.endsWith("/reset");
+      try {
+        const body = JSON.parse(await readBody(req));
+        const key = typeof body.key === "string" ? body.key : "";
+        if (!(MESSAGE_KEYS as string[]).includes(key)) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: "알 수 없는 문구 키입니다" }));
+          return;
+        }
+        if (reset) {
+          await deleteMessageOverride(key);
+        } else {
+          const text = typeof body.text === "string" ? body.text : "";
+          const bad = validateOverride(key as MessageKey, text);
+          if (bad) {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ ok: false, error: bad }));
+            return;
+          }
+          await setMessageOverride(key, text);
+        }
+        await loadMessages();
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (e) {
+        console.error("[admin] 문구 저장 실패:", e);
+        const badBody = e instanceof SyntaxError;
+        res.writeHead(badBody ? 400 : 500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: badBody ? "invalid_body" : "서버 오류가 발생했습니다" }));
+      }
+      return;
+    }
+
     if (req.method === "GET" && url.pathname === "/admin/aliases") {
       const token = url.searchParams.get("code") || "";
       if (!isValidAdminToken(token)) { res.writeHead(403); res.end("expired"); return; }

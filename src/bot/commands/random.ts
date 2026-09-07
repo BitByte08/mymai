@@ -9,6 +9,7 @@ import {
   getSongGenre, GENRES, getSongVersionName, VERSION_NAMES, isSongPlus,
 } from "../../constants";
 import { chartKey } from "../../scraper";
+import { msg } from "../../messages";
 
 const MAI_DIFF_COLOR: Record<string, number> = {
   BASIC: 0x16a34a, ADVANCED: 0xea580c, EXPERT: 0xdc2626,
@@ -100,16 +101,16 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   if (playOpt) {
     const target = interaction.options.getUser("user") ?? interaction.user;
     if (target.id !== interaction.user.id && await getProfilePrivate(target.id)) {
-      await interaction.reply({ content: `<@${target.id}> 님은 프로필을 비공개로 설정했습니다.`, flags: MessageFlags.Ephemeral });
+      await interaction.reply({ content: msg("common.profilePrivate", { user: `<@${target.id}>` }), flags: MessageFlags.Ephemeral });
       return;
     }
     const fc = await getUserFriendCode(target.id);
     const cached = fc ? await getCachedProfile(fc) : null;
     if (!cached) {
-      const msg = target.id === interaction.user.id
+      const notice = target.id === interaction.user.id
         ? "플레이여부 필터는 프로필이 필요합니다. `/북마클릿`으로 먼저 등록해주세요."
-        : `<@${target.id}> 님은 아직 프로필을 등록하지 않았습니다.`;
-      await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+        : msg("common.otherNotRegistered", { user: `<@${target.id}>` });
+      await interaction.reply({ content: notice, flags: MessageFlags.Ephemeral });
       return;
     }
     clearMap = new Map(getClearList(cached).map((r) => [chartKey(r), r]));

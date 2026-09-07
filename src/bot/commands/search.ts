@@ -9,6 +9,7 @@ import {
   getProfilePrivate,
 } from "../../storage";
 import { searchResultEmbeds } from "../utils/embeds";
+import { msg } from "../../messages";
 
 export const data = new SlashCommandBuilder()
   .setName("검색")
@@ -44,7 +45,7 @@ export async function execute(
   const userId = target.id;
   if (target.id !== interaction.user.id && await getProfilePrivate(target.id)) {
     await interaction.reply({
-      content: `<@${target.id}> 님은 프로필을 비공개로 설정했습니다.`,
+      content: msg("common.profilePrivate", { user: `<@${target.id}>` }),
       flags: MessageFlags.Ephemeral,
     });
     return;
@@ -52,11 +53,11 @@ export async function execute(
   const friendCode = await getUserFriendCode(userId);
   const cached = friendCode ? await getCachedProfile(friendCode) : null;
   if (!cached) {
-    const msg =
+    const notice =
       target.id === interaction.user.id
-        ? "아직 프로필이 등록되지 않았습니다. `/북마클릿` 명령어로 먼저 등록해주세요."
-        : `<@${target.id}> 님은 아직 프로필을 등록하지 않았습니다.`;
-    await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+        ? msg("common.selfNotRegistered")
+        : msg("common.otherNotRegistered", { user: `<@${target.id}>` });
+    await interaction.reply({ content: notice, flags: MessageFlags.Ephemeral });
     return;
   }
   const query = interaction.options.getString("title", true);

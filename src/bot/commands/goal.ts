@@ -30,6 +30,7 @@ import {
 } from "../../goals";
 import { getAllSongTitles } from "../../constants";
 import { normalizeQuery, aliasMatches } from "../../aliases";
+import { msg } from "../../messages";
 
 const ACCENT = 0x9333ea;
 const MAX_GOALS_PER_USER = 25;
@@ -317,7 +318,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     const target = interaction.options.getUser("user") ?? interaction.user;
     if (target.id !== interaction.user.id && (await getProfilePrivate(target.id))) {
       await interaction.reply({
-        content: `<@${target.id}> 님은 프로필을 비공개로 설정했습니다.`,
+        content: msg("common.profilePrivate", { user: `<@${target.id}>` }),
         flags: MessageFlags.Ephemeral,
       });
       return;

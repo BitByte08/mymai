@@ -2,6 +2,7 @@ import { SlashCommandBuilder, ChatInputCommandInteraction, MessageFlags, Attachm
 import { getDailyAchievementSummaries, getAvatarBlob, getCachedProfile, getProfilePrivate, getUserFriendCode, getTranslateTitles } from "../../storage";
 import { koreaPlayDayKey, koreaPlayDayRange } from "../../achievements";
 import { renderAchievementCard } from "../utils/achievementCard";
+import { msg } from "../../messages";
 
 export const data = new SlashCommandBuilder()
   .setName("성과")
@@ -31,17 +32,17 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   console.log(`[성과] 시작 scope=${targetScope} userSuffix=${userId.slice(-6)} requestedDay=${requestedDay || "today"}`);
   if (target.id !== interaction.user.id && await getProfilePrivate(target.id)) {
     console.log(`[성과] 비공개 차단 scope=${targetScope}`);
-    await interaction.reply({ content: `<@${target.id}> 님은 프로필을 비공개로 설정했습니다.`, flags: MessageFlags.Ephemeral });
+    await interaction.reply({ content: msg("common.profilePrivate", { user: `<@${target.id}>` }), flags: MessageFlags.Ephemeral });
     return;
   }
   const friendCode = await getUserFriendCode(userId);
   const cached = friendCode ? await getCachedProfile(friendCode) : null;
   if (!cached) {
     console.log(`[성과] 프로필 없음 scope=${targetScope}`);
-    const msg = target.id === interaction.user.id
-      ? "아직 프로필이 등록되지 않았습니다. `/북마클릿` 명령어로 먼저 등록해주세요."
-      : `<@${target.id}> 님은 아직 프로필을 등록하지 않았습니다.`;
-    await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+    const notice = target.id === interaction.user.id
+      ? msg("common.selfNotRegistered")
+      : msg("common.otherNotRegistered", { user: `<@${target.id}>` });
+    await interaction.reply({ content: notice, flags: MessageFlags.Ephemeral });
     return;
   }
 

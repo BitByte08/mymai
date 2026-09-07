@@ -5,6 +5,7 @@ import {
 import { getUserFriendCode, getUserSyncToken, getUserDefaultServer } from "../../storage";
 import { getBaseUrl } from "../../web";
 import { PORT } from "../../config";
+import { msg } from "../../messages";
 
 export const data = new SlashCommandBuilder()
   .setName("설정")
@@ -52,7 +53,7 @@ async function buildSettingsContent(userId: string) {
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   if (!await getUserFriendCode(interaction.user.id)) {
     await interaction.reply({
-      content: "아직 프로필이 등록되지 않았습니다. `/북마클릿` 명령어로 먼저 등록해주세요.",
+      content: msg("common.selfNotRegistered"),
       flags: MessageFlags.Ephemeral,
     });
     return;

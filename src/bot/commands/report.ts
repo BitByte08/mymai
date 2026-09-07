@@ -176,16 +176,16 @@ export async function executeMessage(interaction: MessageContextMenuCommandInter
     return;
   }
   const gid = resolveGuildId(interaction, channelId);
-  const msg = interaction.targetMessage;
+  const targetMsg = interaction.targetMessage;
   const token = randomUUID();
   pendingContexts.set(token, {
-    messageUrl: `https://discord.com/channels/${gid}/${channelId}/${msg.id}`,
+    messageUrl: `https://discord.com/channels/${gid}/${channelId}/${targetMsg.id}`,
     guildId: gid,
     channelId,
-    attachments: [...msg.attachments.values()].map((a) => a.url),
+    attachments: [...targetMsg.attachments.values()].map((a) => a.url),
     expiresAt: Date.now() + PENDING_TTL_MS,
   });
-  await interaction.showModal(buildModal(`report:modal:${token}`, msg.content ?? ""));
+  await interaction.showModal(buildModal(`report:modal:${token}`, targetMsg.content ?? ""));
 }
 
 export async function handleModal(interaction: ModalSubmitInteraction): Promise<void> {
