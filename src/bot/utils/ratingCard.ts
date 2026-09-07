@@ -242,7 +242,7 @@ function jacketCard(
                 fontSize: 12,
                 fontWeight: 800,
                 color: cmColor[vm.mark] ?? "rgba(255,255,255,0.75)",
-                marginLeft: 5,
+                marginLeft: "auto",
                 lineHeight: 1,
               },
               vm.mark,
