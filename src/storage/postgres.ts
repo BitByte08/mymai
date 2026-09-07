@@ -145,6 +145,26 @@ SELECT u.chart_key AS "chartKey",u.achievement_val AS "achievementVal",u.fc,u.sy
         await c.query(`INSERT INTO achievement_play_event_log(event_key,profile_key,source_play_id,chart_key,is_baseline,played_at,source_sequence,captured_at,source_kind,achievement_val,fc,sync,rating_up,title,diff,level,music_kind,achievement_text,record_json,payload_hash,score_gain,is_meaningful,level_constant,achievement_before,rating_gain) VALUES($1,$2,$3,$4,0,$5,$6,$7,'clear_diff',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,1,$20,$21,$22)`,[key,profile,id,e.chartKey,e.playedAt,e.sourceSequence,e.capturedAt??capturedAt,score,e.fc,e.sync,e.ratingUp??null,e.title,e.diff,e.level,e.musicKind,e.achievementText,e.recordJson,payload,Number.isFinite(gain)?gain:0,levelConstant,before,Number.isFinite(ratingGain)?ratingGain:0]);
       } return "ok";});
   }
+  // 상세 페이지의 (+N) 은 이벤트가 만들어지는 동기화에서 늘 함께 오지는 않는다.
+  // (DX NET 레이트리밋으로 상세 수집 실패, 상세만 나중 동기화에서 도착 등)
+  // 매 동기화마다 이번에 받은 상세 페이지로 rating_up 이 비어 있는 이벤트를 메운다.
+  // 이벤트 생성 조건(달성률 상승)과 무관하게 동작해야 하므로 배치 저장과 분리한다.
+  async backfillEventRatingUp(profileKey:string, entries:readonly {sourcePlayId:string;ratingUp:number}[]):Promise<number>{
+    const byId=new Map<string,number>();
+    for(const e of entries){if(e.sourcePlayId&&Number.isFinite(e.ratingUp)&&e.ratingUp>=0)byId.set(e.sourcePlayId,Number(e.ratingUp));}
+    if(!byId.size) return 0;
+    const rows=await this.q<any>(`SELECT event_key AS "eventKey",source_play_id AS "sourcePlayId",achievement_val AS "achievementVal",level_constant AS "levelConstant",fc FROM achievement_play_event_log WHERE profile_key=$1 AND rating_up IS NULL AND source_play_id = ANY($2::text[])`,[profileKey,[...byId.keys()]]);
+    let filled=0;
+    for(const r of rows){
+      const ru=byId.get(r.sourcePlayId); if(ru===undefined) continue;
+      const lc=r.levelConstant==null?null:Number(r.levelConstant);
+      // 저장 경로와 같은 상한 검증. 宴/코스 상세의 (+N) 오탐을 레이팅 상승으로 쓰지 않는다.
+      const ceiling=lc!=null&&Number.isFinite(lc)?calcSongRating(Number(r.achievementVal),lc,r.fc):338;
+      await this.q(`UPDATE achievement_play_event_log SET rating_up=$1,rating_gain=$2 WHERE event_key=$3`,[ru,ru<=ceiling?ru:0,r.eventKey]);
+      filled++;
+    }
+    return filled;
+  }
   async getAchievementPlayEventLog(k:string,from?:number,to?:number){const r=await this.q<any>(`SELECT event_key AS "eventKey",profile_key AS "profileKey",source_play_id AS "sourcePlayId",chart_key AS "chartKey",is_baseline AS "isBaseline",played_at AS "playedAt",source_sequence AS "sourceSequence",captured_at AS "capturedAt",source_kind AS "sourceKind",achievement_val AS "achievementVal",fc,sync,rating_up AS "ratingUp",title,diff,level,music_kind AS "musicKind",achievement_text AS "achievementText",record_json AS "recordJson",payload_hash AS "payloadHash",score_gain AS "scoreGain",is_meaningful AS "isMeaningful",level_constant AS "levelConstant",achievement_before AS "achievementBefore",rating_gain AS "ratingGain" FROM achievement_play_event_log WHERE profile_key=$1 AND ($2::bigint IS NULL OR played_at >= $2) AND ($3::bigint IS NULL OR played_at < $3) ORDER BY played_at DESC,source_sequence DESC,event_key DESC`,[k,from??null,to??null]);return r.map(x=>({...x,playedAt:Number(x.playedAt),capturedAt:Number(x.capturedAt),sourceSequence:Number(x.sourceSequence),isBaseline:Number(x.isBaseline),isMeaningful:Number(x.isMeaningful),scoreGain:Number(x.scoreGain),levelConstant:x.levelConstant==null?null:Number(x.levelConstant),achievementBefore:Number(x.achievementBefore??0),ratingGain:Math.max(0,Number(x.ratingGain)||0)}));}
   async getDailyAchievementSummaries(discordUserId:string,from:number,to:number){const session=await this.q<any>("SELECT friend_code,default_server FROM sessions WHERE discord_user_id=$1",[discordUserId]);const stored=session[0]?.friend_code;const profileKey=stored?(/^(?:intl|jp):/.test(stored)?stored:`${session[0]?.default_server==='jp'?'jp':'intl'}:${stored}`):discordUserId;const threshold=await this.getAchievementMinimum(discordUserId);return (await this.getAchievementPlayEventLog(profileKey,from,to)).filter((x:any)=>x.isBaseline===0&&x.isMeaningful===1).reduce((a:any[],x:any)=>{const old=a.find(y=>y.chartKey===x.chartKey);if(!old&&(x.achievementVal>=threshold||fcRank(x.fc)>0||syncRank(x.sync)>=2))a.push({...x,achievementGain:Math.max(0,Number(x.achievementVal)-Number(x.achievementBefore??0)),achievementAfter:Number(x.achievementVal),ratingGain:Math.max(0,Number(x.ratingGain)||0)});return a;},[]);}
   async getAchievementMinimum(id:string){const r=await this.q<any>("SELECT minimum_achievement FROM sessions WHERE discord_user_id=$1",[id]);return Number(r[0]?.minimum_achievement??95);}

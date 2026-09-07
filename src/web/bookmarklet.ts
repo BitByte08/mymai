@@ -153,7 +153,7 @@ addSection('ASSETS');
 addRow('av','\uC544\uBC14\uD0C0');addRow('jk','\uC7AC\uD0B7 \uC774\uBBF8\uC9C0');
 addSection('SERVER');
 addRow('sv','\uC11C\uBC84 \uC800\uC7A5');
-var MAX_ATTEMPTS=3,REQUEST_TIMEOUT=15000,SYNC_UPLOAD_TIMEOUT=60000,PAGE_CONCURRENCY=3,DETAIL_CONCURRENCY=1,DETAIL_GAP=350,DETAIL_ATTEMPTS=4,BUSY_BACKOFF=2000;
+var MAX_ATTEMPTS=3,REQUEST_TIMEOUT=15000,SYNC_UPLOAD_TIMEOUT=60000,PAGE_CONCURRENCY=3,DETAIL_CONCURRENCY=1,DETAIL_GAP=250,DETAIL_ATTEMPTS=4,BUSY_BACKOFF=2000;
 function isErrorPage(t){return t.length<15000&&(t.indexOf('ERROR CODE')>-1||t.indexOf('NET\uFF0DError\uFF0D')>-1);}
 function sleep(ms){return new Promise(function(res){setTimeout(res,ms);});}
 function jitter(base){return base+Math.floor(Math.random()*Math.min(base,600));}
