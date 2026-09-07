@@ -38,7 +38,7 @@ const CARD_H = 115;
 const GAP = 4;
 const ACCENT = "#9333ea";
 // 카드 레이아웃/계산이 바뀌면 올린다 → 기존 렌더 캐시가 자동 무효화됨
-const CARD_VERSION = 7;
+const CARD_VERSION = 8;
 
 // ─── Satori element helper (no JSX) ───────────────────────────────────────
 type El = {
