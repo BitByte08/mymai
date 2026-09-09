@@ -80,7 +80,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       const parsed = JSON.parse(snap.topJson);
       if (Array.isArray(parsed)) snapRecords = parsed;
     } catch { /* ignore */ }
-    snapshotDay = dateOpt;
+    snapshotDay = snap.playDay;
     records = snapRecords;
     // 스냅샷 레코드는 마크·ST/DX 보정이 끝난 상태라, clearJson 자리에 그대로 넣으면
     // 렌더 쪽 markMap/kindResolver 가 현재 프로필 대신 그날 상태를 본다.
@@ -105,7 +105,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       !snapshotDay,
     );
     await interaction.editReply({
-      content: snapshotDay ? msg("ratingImage.snapshotNotice", { date: snapshotDay }) : undefined,
+      content: !snapshotDay
+        ? undefined
+        : snapshotDay === dateOpt
+          ? msg("ratingImage.snapshotNotice", { date: snapshotDay })
+          : msg("ratingImage.snapshotNoticeFallback", { actual: snapshotDay, date: dateOpt }),
       files: [new AttachmentBuilder(png, { name: snapshotDay ? `rating-${snapshotDay}.png` : `rating-${game}.png` })],
     });
   } catch (e) {

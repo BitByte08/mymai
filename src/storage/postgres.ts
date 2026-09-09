@@ -111,8 +111,11 @@ export class PostgresStorage {
       ON CONFLICT(profile_key,play_day) DO UPDATE SET top_json=excluded.top_json,rating=excluded.rating,synced_at=excluded.synced_at`,
       [profileKey,playDay,topJson,Math.round(rating)||0,syncedAt]);
   }
+  // 요청 날짜 이하 중 가장 최근 스냅샷. 갱신하지 않은 날의 레이팅표는 직전 갱신 시점
+  // 상태와 같으므로, 정확히 일치하는 행이 없어도 직전 기록으로 답한다.
+  // 호출부는 반환된 playDay 가 요청 날짜와 다르면 그 사실을 함께 표시한다.
   async getRatingSnapshot(profileKey:string, playDay:string){
-    const r=await this.q<any>(`SELECT play_day AS "playDay",top_json AS "topJson",rating,synced_at AS "syncedAt" FROM rating_snapshots WHERE profile_key=$1 AND play_day=$2`,[profileKey,playDay]);
+    const r=await this.q<any>(`SELECT play_day AS "playDay",top_json AS "topJson",rating,synced_at AS "syncedAt" FROM rating_snapshots WHERE profile_key=$1 AND play_day <= $2 ORDER BY play_day DESC LIMIT 1`,[profileKey,playDay]);
     if(!r[0]) return null;
     return {...r[0], rating:Number(r[0].rating), syncedAt:Number(r[0].syncedAt)};
   }
