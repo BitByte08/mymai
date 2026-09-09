@@ -108,7 +108,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       deferred = true;
       const laterEvents = await getAchievementPlayEventLog(cached.profileKey, cutoff);
       const { records: rewound } = rewindClearRecords(clearNow, laterEvents);
-      records = computeRatingTarget(rewound, cached.server);
+      // 신곡/구곡 판정은 그날의 버전 기준으로 (예: 2026-07-23 CiRCLE PLUS 업데이트 이전은
+      // PRiSM PLUS ~ CiRCLE 이 신곡).
+      records = computeRatingTarget(rewound, cached.server, dateOpt);
       rewindDay = dateOpt;
       // rating 0 → 카드 헤더가 표시 중인 50곡의 곡 레이팅 합계를 쓴다(= 역산된 총합).
       profile = { ...cached, rating: 0, clearJson: JSON.stringify(rewound) };
@@ -133,6 +135,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
       await getTranslateTitles(interaction.user.id),
       game,
       !snapshotDay && !rewindDay,
+      rewindDay || undefined,
     );
     await interaction.editReply({
       content: rewindDay
