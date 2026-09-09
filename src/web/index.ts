@@ -2,8 +2,8 @@ import * as http from "http";
 import * as fs from "fs";
 import { gunzip } from "zlib";
 import { promisify } from "util";
-import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey } from "../scraper";
-import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, backfillEventRatingUp, getAllAliases, addAlias, deleteAlias, setAliasTranslation, setMessageOverride, deleteMessageOverride, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress, getPolicyAck, setPolicyAck } from "../storage";
+import { parseHome, parsePlayerData, parseFriendCode as parseFC, parseRecentRecords, parsePlaylogHistory, parseTop5, parseTopSongs, parseMusicScore, mergeTopRecords, getMaimaiBaseUrl, parseMapAreas, parsePlaylogDetail, chartKey, buildMarkMap, buildKindResolver } from "../scraper";
+import { cacheProfile, getCachedProfile, saveUserSession, getUserSyncToken, findUserBySyncToken, getUserFriendCodeForServer, saveAvatarBlob, getAvatarBlob, getSongJacket, saveSongJacket, getExtraBookmarklets, getProfilePrivate, setProfilePrivate, addExtraBookmarklet, removeExtraBookmarklet, getEnabledBookmarkletPresetIds, setBookmarkletPresetEnabled, getUserDefaultServer, setUserDefaultServer, isMaimaiServer, getMapImage, saveMapImage, saveAchievementPlayEventLogBatch, upsertChartClears, backfillEventRatingUp, saveRatingSnapshot, getAllAliases, addAlias, deleteAlias, setAliasTranslation, setMessageOverride, deleteMessageOverride, getTranslateTitles, setTranslateTitles, getRegisteredUserCount, getAchievementMinimum, setAchievementMinimum, listGoals, updateGoalProgress, getPolicyAck, setPolicyAck } from "../storage";
 import { POLICY_VERSION } from "../policy";
 import type { SongAliasRow } from "../storage/types";
 import { buildBookmarkletJs, setBaseUrl, getBaseUrl, buildBookmarklet, BOOKMARKLET_PRESETS, getBookmarkletPresets } from "./bookmarklet";
@@ -18,7 +18,7 @@ import {
 import { isValidAdminToken } from "./adminAuth";
 import { loadAliases } from "../aliases";
 import { CONFIG } from "../config";
-import { hasValidRecordDate, recordPlayedAt } from "../achievements";
+import { hasValidRecordDate, recordPlayedAt, koreaPlayDayKey } from "../achievements";
 import { evaluateGoal, GOAL_KINDS, type GoalKind } from "../goals";
 
 const isDev = !CONFIG.baseUrl;
@@ -826,6 +826,31 @@ a{color:#c084fc}
           playCount: playCount || 0, totalPlayCount: totalPlayCount || 0, comment: effective.comment || "", friendCode: fc,
         }, playCount || 0, JSON.stringify(enrichedRecentRecords), JSON.stringify(topRecords), JSON.stringify(clearRecords), syncServer, JSON.stringify(mapAreas));
         const syncStamp = Date.now();
+
+        // 하루치 레이팅 대상 50곡 + 총합 레이팅 스냅샷. profiles.top_json 은 동기화마다
+        // 덮어써져 이력이 없으므로 과거 레이팅표 조회를 위해 따로 남긴다.
+        // 레이팅 대상 페이지엔 마크(FC/Sync)가 없고 ST/DX 도 부정확해, 렌더 시점과 동일하게
+        // clearRecords 로 보정한 상태로 저장한다(스냅샷만으로 카드를 그릴 수 있도록).
+        if (topRecords.length > 0) {
+          try {
+            const markMap = buildMarkMap(clearRecords);
+            const resolveKind = buildKindResolver(clearRecords);
+            const snapshotRecords = topRecords.map((r) => {
+              const musicKind = resolveKind(r);
+              const marks = markMap.get(chartKey({ ...r, musicKind })) ?? { fc: r.fc, sync: r.sync };
+              return { ...r, musicKind, fc: marks.fc, sync: marks.sync };
+            });
+            await saveRatingSnapshot(
+              savedProfileKey,
+              koreaPlayDayKey(new Date(syncStamp)),
+              JSON.stringify(snapshotRecords),
+              effective.rating || 0,
+              syncStamp,
+            );
+          } catch (snapshotError) {
+            console.error("[web] 레이팅 스냅샷 저장 실패 (동기화는 계속 진행):", snapshotError);
+          }
+        }
         // 성과(achievement)는 clearJson(전체 클리어 기록) 스냅샷 diff로 판정한다: chart_clears
         // 테이블에 이번 clearRecords를 upsert하면서 직전 값과 원자적으로 비교해, 실제로 오른 채보만
         // 돌려받는다. 스크래핑 depth나 "NEW" 마커 여부에 기대지 않으므로 트래킹 이전부터 있던 곡이든

@@ -7,7 +7,7 @@ import { calcSongRating, getConstant, levelToNumber } from "../constants";
 
 pgTypes.setTypeParser(20, (value) => Number(value));
 
-export const MIGRATION_VERSION = 13;
+export const MIGRATION_VERSION = 14;
 
 // Migration text is deliberately kept as separate, immutable units.  In particular,
 // an edit to the current schema must not silently change an old migration checksum.
@@ -61,6 +61,17 @@ CREATE INDEX IF NOT EXISTS idx_user_goals_owner ON user_goals(discord_user_id, c
   // bot_messages: 봇 출력 문구의 오버라이드. key는 src/messages.ts의 카탈로그 키이고
   // 행이 없으면 코드의 기본값이 쓰인다(삭제 = 기본값 복원).
   [13, `CREATE TABLE IF NOT EXISTS bot_messages (key text PRIMARY KEY, text text NOT NULL, updated_at bigint NOT NULL DEFAULT 0);`,],
+  // rating_snapshots: 하루(04:00 KST 기준 play-day)별 레이팅 대상 50곡 + 총합 레이팅.
+  // profiles.top_json 은 동기화마다 덮어써져 이력이 없으므로, 과거 레이팅표 조회를 위해
+  // 별도로 남긴다. 같은 날 여러 번 동기화하면 마지막 상태로 갱신된다.
+  [14, `CREATE TABLE IF NOT EXISTS rating_snapshots (
+    profile_key text NOT NULL,
+    play_day text NOT NULL,
+    top_json text NOT NULL,
+    rating integer NOT NULL DEFAULT 0,
+    synced_at bigint NOT NULL DEFAULT 0,
+    PRIMARY KEY (profile_key, play_day)
+  );`,],
 ];
 
 function hash(text: string): string { return crypto.createHash("sha256").update(text).digest("hex"); }
@@ -93,6 +104,23 @@ export class PostgresStorage {
   async getCachedProfile(fc:string){const r=await this.q<any>(`SELECT friend_code AS "profileKey",COALESCE(NULLIF(display_friend_code,''),friend_code) AS "friendCode",COALESCE(server_region,'intl') AS server,player_name AS "playerName",rating,rating_max AS "ratingMax",trophy,trophy_class AS "trophyClass",avatar,grade_img AS "gradeImg",stars,comment,play_count AS "playCount",COALESCE(total_play_count,0) AS "totalPlayCount",last_synced_at AS "lastSyncedAt",recent_json AS "recentJson",top_json AS "topJson",clear_json AS "clearJson",COALESCE(map_json,'[]') AS "mapJson" FROM profiles WHERE friend_code=$1 OR display_friend_code=$1 LIMIT 1`,[fc]);if(r[0])r[0].lastSyncedAt=Number(r[0].lastSyncedAt);return r[0]??null;}
   async getAllCachedProfiles(){return this.q(`SELECT friend_code AS "profileKey",COALESCE(NULLIF(display_friend_code,''),friend_code) AS "friendCode",server_region AS server,player_name AS "playerName",rating,rating_max AS "ratingMax",trophy,trophy_class AS "trophyClass",avatar,grade_img AS "gradeImg",stars,comment,play_count AS "playCount",total_play_count AS "totalPlayCount",last_synced_at AS "lastSyncedAt",recent_json AS "recentJson",top_json AS "topJson",clear_json AS "clearJson",map_json AS "mapJson" FROM profiles`);}
   async deleteCachedProfile(fc:string){await this.q("DELETE FROM profiles WHERE friend_code=$1",[fc]);}
+
+  // 레이팅 대상 50곡 스냅샷. topJson 은 마크(FC/Sync)·ST/DX 보정까지 끝낸 상태로 넘어온다.
+  async saveRatingSnapshot(profileKey:string, playDay:string, topJson:string, rating:number, syncedAt:number){
+    await this.q(`INSERT INTO rating_snapshots(profile_key,play_day,top_json,rating,synced_at) VALUES($1,$2,$3,$4,$5)
+      ON CONFLICT(profile_key,play_day) DO UPDATE SET top_json=excluded.top_json,rating=excluded.rating,synced_at=excluded.synced_at`,
+      [profileKey,playDay,topJson,Math.round(rating)||0,syncedAt]);
+  }
+  async getRatingSnapshot(profileKey:string, playDay:string){
+    const r=await this.q<any>(`SELECT play_day AS "playDay",top_json AS "topJson",rating,synced_at AS "syncedAt" FROM rating_snapshots WHERE profile_key=$1 AND play_day=$2`,[profileKey,playDay]);
+    if(!r[0]) return null;
+    return {...r[0], rating:Number(r[0].rating), syncedAt:Number(r[0].syncedAt)};
+  }
+  // 조회 가능한 날짜 범위 안내용. 스냅샷이 없는 날짜를 요청했을 때 쓴다.
+  async getRatingSnapshotRange(profileKey:string){
+    const r=await this.q<any>(`SELECT MIN(play_day) AS "first",MAX(play_day) AS "last",COUNT(*)::int AS "count" FROM rating_snapshots WHERE profile_key=$1`,[profileKey]);
+    return r[0]?.count ? r[0] as {first:string;last:string;count:number} : null;
+  }
 
   // clearJson 스냅샷(chart_clears)을 곡별로 upsert하면서 갱신 전 값을 같은 쿼리에서 돌려받는다.
   // CTE는 이 문(statement)의 쓰기가 반영되기 전 스냅샷을 보므로 "직전 값 vs 이번 값" 비교가 원자적이다.

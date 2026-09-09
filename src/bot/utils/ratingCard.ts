@@ -443,6 +443,8 @@ export async function renderRatingCard(
   avatarBuf: Buffer | null,
   translate = false,
   game: GameId = "maimai",
+  // 과거 스냅샷 렌더는 현재 프로필 기준 캐시(profileKey 단일 행)를 오염시키면 안 되므로 끈다.
+  allowCache = true,
 ): Promise<Buffer> {
   const cfg = GAMES[game];
   const cmColor = GAME_CM_COLOR[game];
@@ -451,7 +453,7 @@ export async function renderRatingCard(
   // ─── Render cache: return cached PNG if profile and card version unchanged ─
   // 번역 표시본은 뷰어별로 달라 공유 캐시(원제 기준)를 쓰지 않고 매번 새로 렌더한다.
   // 타 게임 치환본도 마찬가지로 maimai 기준 캐시를 공유하지 않는다.
-  const cacheable = !translate && game === "maimai";
+  const cacheable = allowCache && !translate && game === "maimai";
   const cached = cacheable ? await getRatingCardCache(profile.profileKey) : null;
   if (
     cached &&
