@@ -65,6 +65,27 @@ const NEW_SONG_MIN_VERSION = 26000; // 국제판 신곡 하한: CiRCLE 시작 (�
 const NEW_SONG_MIN_VERSION_JP = 26000; // 내수판 신곡 하한: CiRCLE 시작 (내수판 현재 = CiRCLE PLUS이므로 CiRCLE+CiRCLE PLUS만 신곡)
 const NEW_SONG_MAX_VERSION = 27000; // 다음 세대 시작 (미포함) = CiRCLE PLUS까지 신곡
 
+// 레이팅 "신곡" 범위는 버전 업데이트마다 통째로 옮겨간다. 과거 레이팅표를 역산할 때
+// 현재 범위로 신곡/구곡을 나누면 그 시점과 어긋나므로, 적용 시작일과 함께 이력을 둔다.
+// from 은 그 범위가 적용되기 시작한 play-day(포함). 최신순으로 정렬해 첫 일치를 쓴다.
+// 새 버전이 나오면 위에 한 줄 추가하고 NEW_SONG_MIN/MAX 도 함께 갱신할 것.
+const NEW_SONG_WINDOWS: { from: string; min: number; max: number }[] = [
+  // 2026-07-23 CiRCLE PLUS 업데이트 → CiRCLE ~ CiRCLE PLUS
+  { from: "2026-07-23", min: NEW_SONG_MIN_VERSION, max: NEW_SONG_MAX_VERSION },
+  // 그 이전 → PRiSM PLUS ~ CiRCLE (CiRCLE PLUS 26500 미포함)
+  { from: "", min: 25500, max: 26500 },
+];
+
+export interface NewSongWindow { min: number; max: number }
+
+// playDay(YYYY-MM-DD)가 없으면 현재 범위. 이력보다 오래된 날짜는 가장 오래된 범위를 쓴다.
+// 국제판 기준 이력이므로 내수판(jp) 판정에는 쓰지 않는다 (isNewSong 참고).
+export function newSongWindowAt(playDay?: string): NewSongWindow {
+  if (!playDay) return { min: NEW_SONG_MIN_VERSION, max: NEW_SONG_MAX_VERSION };
+  const hit = NEW_SONG_WINDOWS.find((w) => playDay >= w.from) ?? NEW_SONG_WINDOWS[NEW_SONG_WINDOWS.length - 1];
+  return { min: hit.min, max: hit.max };
+}
+
 const FORTUNE_MIN_CONSTANT = 14.6;
 const FORTUNE_MAX_CONSTANT = 15.1;
 export interface DailyFortuneChart {
@@ -259,9 +280,16 @@ export function getSongVersion(title: string): number | null {
 
 // 레이팅 신곡(현재+이전 버전) 여부. version 데이터가 없으면 구곡으로 취급.
 // 서버별 현재 세대가 달라 신곡 하한이 다르다(내수판=CiRCLE PLUS, 국제판=CiRCLE).
-export function isNewSong(title: string, server: MaimaiServer = "intl"): boolean {
+// playDay 를 주면 그 시점의 신곡 범위로 판정한다(과거 레이팅표 역산용).
+// 단 NEW_SONG_WINDOWS 는 국제판 업데이트 일정 기준이라 내수판(jp)에는 적용하지 않는다.
+// 내수판은 세대 진행이 국제판보다 앞서 같은 날짜의 신곡 범위가 다르다.
+export function isNewSong(title: string, server: MaimaiServer = "intl", playDay?: string): boolean {
   const v = versionMap.get(title);
   if (v === undefined) return false;
+  if (playDay && server !== "jp") {
+    const w = newSongWindowAt(playDay);
+    return v >= w.min && v < w.max;
+  }
   const min = server === "jp" ? NEW_SONG_MIN_VERSION_JP : NEW_SONG_MIN_VERSION;
   return v >= min && v < NEW_SONG_MAX_VERSION;
 }
@@ -493,12 +521,12 @@ export function calcSongRating(achievementVal: number, level: number, fc?: strin
 // 전체 기록(clearRecords)에서 레이팅 대상을 직접 추론한다.
 // 신곡 15개 + 구곡 35개(각각 RS 내림차순). 표시부는 위치가 아니라 isNewSong으로
 // 재분류하므로 두 그룹의 순서 자체에는 의존하지 않는다.
-export function computeRatingTarget(clearRecords: PlayRecord[], server: MaimaiServer = "intl"): PlayRecord[] {
+export function computeRatingTarget(clearRecords: PlayRecord[], server: MaimaiServer = "intl", playDay?: string): PlayRecord[] {
   const rated = clearRecords
     .filter((r) => r.achievementVal > 0)
     .map((r) => {
       const c = getConstant(r.title, r.musicKind, r.diff, server) ?? levelToNumber(r.level);
-      return { rec: r, rs: calcSongRating(r.achievementVal, c, r.fc), isNew: isNewSong(r.title, server) };
+      return { rec: r, rs: calcSongRating(r.achievementVal, c, r.fc), isNew: isNewSong(r.title, server, playDay) };
     });
   const byRs = (a: { rs: number }, b: { rs: number }) => b.rs - a.rs;
   const news = rated.filter((x) => x.isNew).sort(byRs).slice(0, 15).map((x) => x.rec);

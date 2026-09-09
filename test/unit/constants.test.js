@@ -32,3 +32,20 @@ test("constantToDisplayLevel: X.0~X.5 → 'X', X.6~X.9 → 'X+'", () => {
   assert.equal(c.constantToDisplayLevel(13.9), "13+");
   assert.equal(c.constantToDisplayLevel(14.0), "14");
 });
+
+test("newSongWindowAt: 버전 업데이트 시점 기준으로 신곡 범위가 바뀐다", () => {
+  const cur = c.newSongWindowAt();
+  assert.deepEqual(cur, { min: 26000, max: 27000 }, "인자 없으면 현재 범위 (CiRCLE ~ CiRCLE PLUS)");
+
+  // 2026-07-23 CiRCLE PLUS 업데이트 당일부터 현재 범위
+  assert.deepEqual(c.newSongWindowAt("2026-07-23"), { min: 26000, max: 27000 });
+  assert.deepEqual(c.newSongWindowAt("2026-09-01"), { min: 26000, max: 27000 });
+
+  // 그 하루 전까지는 PRiSM PLUS(25500) ~ CiRCLE(26500 미포함)
+  assert.deepEqual(c.newSongWindowAt("2026-07-22"), { min: 25500, max: 26500 });
+  assert.deepEqual(c.newSongWindowAt("2026-01-01"), { min: 25500, max: 26500 });
+  assert.deepEqual(c.newSongWindowAt("2020-01-01"), { min: 25500, max: 26500 });
+});
+
+// isNewSong 의 국제판/내수판 분기는 versionMap(네트워크·DB 로드)이 있어야 의미가 있어
+// 여기선 검증하지 않는다. 실데이터 검증은 개발 스택에서 별도로 수행.
