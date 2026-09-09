@@ -19,6 +19,12 @@ export const MESSAGES = {
 
   // ── /레이팅표 ───────────────────────────────────────────────────────────
   "ratingImage.noRecords": "레이팅 기록이 없습니다. 북마클릿을 다시 실행하세요.",
+  "ratingImage.snapshotNotice": "📅 {date} 기준 레이팅표",
+  "ratingImage.snapshotNoticeFallback": "📅 {actual} 기준 레이팅표 · {date} 에는 갱신 기록이 없어 직전 기록을 표시합니다",
+  "ratingImage.snapshotMissing": "{date} 이전의 레이팅표 기록이 없습니다. 조회 가능한 범위: {first} ~ {last}",
+  "ratingImage.snapshotNone": "아직 저장된 레이팅표 기록이 없습니다. 동기화하면 그날부터 하루씩 쌓입니다.",
+  "ratingImage.snapshotBadDate": "날짜는 YYYY-MM-DD 형식으로 입력해주세요. (예: 2026-09-03)",
+  "ratingImage.snapshotGameUnsupported": "과거 날짜 조회는 maimai DX 레이팅표만 지원합니다. 다른 게임 환산은 전체 클리어 기록이 필요한데, 스냅샷은 레이팅 대상 50곡만 보관합니다.",
   "ratingImage.renderFailed": "이미지 생성에 실패했습니다.",
 
   // ── 공통 (서버/권한) ────────────────────────────────────────────────────
