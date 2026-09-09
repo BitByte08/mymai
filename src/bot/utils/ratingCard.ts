@@ -445,6 +445,8 @@ export async function renderRatingCard(
   game: GameId = "maimai",
   // 과거 스냅샷 렌더는 현재 프로필 기준 캐시(profileKey 단일 행)를 오염시키면 안 되므로 끈다.
   allowCache = true,
+  // 과거 역산 렌더용. 주면 그 시점의 신곡 범위로 신곡/구곡을 나눈다.
+  newSongDay?: string,
 ): Promise<Buffer> {
   const cfg = GAMES[game];
   const cmColor = GAME_CM_COLOR[game];
@@ -492,11 +494,11 @@ export async function renderRatingCard(
     // JP: 전체 기록에서 직접 산출하므로 버전(isNewSong)으로 분류(15/35 미만 오분류 방지).
     const newRecords =
       profile.server === "jp"
-        ? records.filter((r) => isNewSong(r.title, "jp")).slice(0, 15)
+        ? records.filter((r) => isNewSong(r.title, "jp", newSongDay)).slice(0, 15)
         : records.slice(0, 15);
     const otherRecords =
       profile.server === "jp"
-        ? records.filter((r) => !isNewSong(r.title, "jp")).slice(0, 35)
+        ? records.filter((r) => !isNewSong(r.title, "jp", newSongDay)).slice(0, 35)
         : records.slice(15, 50);
     const newVms = newRecords.map(vmOf);
     const otherVms = otherRecords.map(vmOf);
